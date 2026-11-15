@@ -1,0 +1,11 @@
+{
+  "name": "pixelproof",
+  "version": "0.2.0",
+  "private": true,
+  "description": "PixelProof: brand checks before you publish. Team Pixel, CodeNova India 2026.",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "test": "node --test tests/engine.test.js"
+  },
+  "engines": { "node": ">=18" }
+}
