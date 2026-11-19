@@ -44,11 +44,7 @@
     return prefix + (pad ? String(n).padStart(pad, "0") : n);
   }
   function freshDraft() { return { itemId: null, type: "LinkedIn post", title: "", text: "", image: null, result: null }; }
-  // Shows a rule's regular expression as plain words, e.g. "limited time( only)?" -> "limited time (only)"
-  function humanPattern(p) {
-    return String(p).replace(/\\b/g, "").replace(/\[- \]/g, "-").replace(/\(\?:/g, "(").replace(/\\s[?*+]?/g, " ").replace(/[?*+\\^$]/g, "")
-      .replace(/\(\s+/g, "(").replace(/(\S)\(/g, "$1 (").replace(/\s+/g, " ").trim();
-  }
+  const humanPattern = p => PP.plainPattern(p);
 
   // ---------- browser storage ----------
   let STORAGE_OK = true;

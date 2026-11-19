@@ -6,13 +6,18 @@ A plain-English tour of the code, for anyone reading the repository (and for me,
 
 | File | What it does |
 | --- | --- |
-| `index.html` | The page skeleton: header, tabs, role switch. Loads the three scripts below. |
+| `index.html` | The page skeleton: header, tabs, role switch, account badge. Loads the scripts below. |
 | `styles.css` | All the styling. |
 | `js/brandkit.js` | The demo brand kit for Kitebird Money (a made-up brand): voice, rules, glossary, approved facts, colour palette, and the three sample texts. |
-| `js/engine.js` | The checker. Rules, fact checks, checking the AI's answer, image colours, and the word-by-word diff. No user interface in here, so it can be tested on its own. |
-| `js/app.js` | The user interface: the five screens, buttons, saving to the browser, and the review workflow. |
-| `api/check.js` | The only server code. A small Vercel function that asks Google Gemini for the AI review. The API key lives here, never in the browser. |
-| `tests/engine.test.js` | 15 tests for the checker (`npm test`). |
+| `js/engine.js` | The checker. Rules, fact checks, checking the AI's answer, image colours, the word-by-word diff, and the guideline gap detector. No user interface in here, so it can be tested on its own and reused by the extension. |
+| `js/team.js` | The team workspace: sign in, workspaces, roles, loading and saving the shared queue and brand kit, live updates. The only file that talks to Supabase. |
+| `js/app.js` | The user interface: the six screens, buttons, saving, the review workflow, the gap detector screens and team mode. |
+| `api/check.js` | A small Vercel function that asks Google Gemini for the AI review (and, with `mode: "rule"`, for a clearer rule wording). The API key lives here, never in the browser. |
+| `api/config.js` | Tells the browser the team database's public address and key, if the team workspace is set up. |
+| `supabase/schema.sql` | The team database: tables, row level security, the approval guard, and the create/join functions. |
+| `extension/` | The Chrome extension. `content.js` runs inside LinkedIn, Gmail and X; `background.js` sends AI checks to the server; `sidepanel.*` and `options.*` are its two pages; `lib/` is a copy of the engine and demo brand kit. |
+| `scripts/build-extension.js` | Copies the engine into the extension and builds the zip (`npm run build:extension`). |
+| `tests/` | 30 tests (`npm test`): the checker, the gap detector, the API function and the extension. `supabase/test/` has the database security test. |
 | `dev-server.js` | Runs the app on your own computer (`node dev-server.js`). |
 | `vercel.json` | Gives the AI function up to 60 seconds. |
 
@@ -49,6 +54,31 @@ A plain-English tour of the code, for anyone reading the repository (and for me,
 - "Request changes" sends it back; the creator clicks **Revise in checker**, fixes it, and submits version 2.
 - Everything is saved in the browser with `localStorage`, so the demo needs no login.
 
+## Guideline gap detector (Insights)
+
+1. **`analyseGaps()` in engine.js** goes through every submitted version and counts, per rule: how often it was flagged, dismissed by the creator, allowed by a reviewer ("OK to publish"), disagreed with, and fixed. It keeps the reasons people gave and the exact words. It also counts per phrase, so it knows if a phrase like "limited time" was always allowed and never fixed. Only checks made after the rule's last change are counted, so a fixed rule drops off the list.
+2. A rule with at least two pushbacks and a pushback rate of 40% or more is **likely unclear**; one pushback is **worth watching**.
+3. **Suggest a clearer rule:** `suggestRuleChange()` drafts a change from the evidence alone (stop flagging phrases that were always allowed, lower the severity if reviewers keep allowing it, examples from real content). If the AI is on, `askAIForRule()` in app.js sends the rule and the evidence to `api/check.js` with `mode: "rule"`, and Gemini returns clearer wording with allowed and not-allowed examples.
+4. **`validateRuleChange()`** checks whatever came back: only phrases the rule really has can be removed, at least one must stay, the wording must be a real sentence, severity must be valid.
+5. The brand manager edits and clicks **Approve**. **`applyRuleChange()`** updates the rule, raises the brand kit version and adds a history entry (who, when, before, after, who drafted it). The next check uses the new rule straight away, and **See the next check change** re-checks real content that was pushed back on.
+6. **Undo** (`revertRuleChange()`) puts the old rule back and records that too.
+
+## Team workspace
+
+- **Demo mode** (no sign-in) keeps everything in the browser. **Team mode** keeps the brand kit and review queue in Supabase.
+- `js/team.js` signs people in, lists their workspaces, creates one (`create_workspace` makes you admin and gives a 6-character code) or joins one (`join_workspace` makes you a creator).
+- Each submitted item is one row: its status plus the full item (versions, comments, history) as JSON. The brand kit is a JSON column on the workspace.
+- **Security is in the database, not the screen.** Row level security means you only see workspaces you belong to. A trigger (`items_guard`) refuses "approved" or "changes requested" from a creator, even if someone edits the page's code. Only brand managers and admins can change the brand kit; only admins change roles, and the last admin can't be removed. `supabase/test/rls_test.sql` tests all of this.
+- **Live updates:** `subscribe()` listens for database changes, and the app also re-loads every 20 seconds as a backup. If you're typing in a box when an update arrives, the screen waits until you leave the box.
+
+## Chrome extension
+
+- `content.js` watches for the compose box you click into (LinkedIn's Quill editor, Gmail's message body, X's Draft.js editor) and puts a **Check** button at its corner.
+- `readEditor()` turns the box into plain text and remembers which piece of the page each character came from. That's how an issue found in the text becomes an underline (`paintHighlights()`, using the browser's Custom Highlight API so the page's own code isn't disturbed) and how a fix replaces exactly the right words (`applyFix()`, which selects them and uses the browser's insert-text command, so the site sees it as typing).
+- The rule and fact checks run in the page using the same `engine.js`. The AI review goes through `background.js` to the PixelProof server, and the answer is checked by the same `verifyAI()`.
+- **Send to review queue** opens the web app with the draft in the link (`#check=...`); the app reads it, checks it and lets you submit.
+- The side panel does the same for any selected text, on any site.
+
 ## Images
 
 `readImage()` shrinks the uploaded image onto a small canvas and reads its pixels. `analyseImage()` groups similar colours, keeps the main ones, and compares each with the brand palette using a colour-difference measure (CIE Lab delta E). It also checks the contrast of the two main colours (WCAG formula) and requires alt text.
@@ -59,10 +89,14 @@ A plain-English tour of the code, for anyone reading the repository (and for me,
 
 **How do you stop the AI making things up?** It must cite a fact ID and quote the fact's words, and code checks that quote against the real fact library. If the check fails, the claim is treated as unsupported.
 
-**What if the AI is down?** The rule and fact checks still run. The server also falls back to a faster model (Gemini 2.5 Flash-Lite) if the main one is slow or busy, and there's a "Try AI review again" button.
+**What if the AI is down?** The rule and fact checks still run. The server also falls back to a backup model if the main one is slow, busy or retired, and there's a "Try AI review again" button. The gap detector still drafts a rule change from the evidence without the AI.
 
-**How is private data protected?** Emails, phone numbers, PAN and ID numbers are masked before text goes to the AI, in the browser and again on the server. The API key is only on the server. The demo data stays in the user's browser.
+**How is private data protected?** Emails, phone numbers, PAN and ID numbers are masked before text goes to the AI, in the browser and again on the server. The API key is only on the server. Demo data stays in the user's browser; team data is protected by row level security.
 
-**Why a web app and not the Chrome extension you planned?** Judges and new users need to open a link and use it with no installation. The extension is planned for Round 3, and it will reuse `engine.js` as it is.
+**Can't a creator just change the page's code to approve their own post?** They can change the page, but the database refuses it: the approval guard runs inside Postgres and checks their role.
 
-**How do you know it works?** `npm test` runs 15 tests: blockers on the risky sample, verified facts, expired facts, AI answers being thrown out, privacy masking, image checks and contrast maths.
+**Could the AI rewrite the rules on its own?** No. It only drafts a suggestion, code validates it, and a brand manager has to approve it. Every change is in the history and can be undone.
+
+**Why does the extension send drafts through the web app instead of saving them itself?** So there's one place where content is submitted and one set of permissions to get right.
+
+**How do you know it works?** `npm test` runs 30 tests. The database security test runs on real Postgres. Browser tests in Chrome go through the whole journey, the gap detector, the bad-input cases, two people in one team workspace, and the extension on pages with the same editors as LinkedIn, Gmail and X. The README's Testing section has the details.

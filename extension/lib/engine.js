@@ -580,6 +580,11 @@
   }
 
   // Applies an approved change to the brand kit and records it in the guideline history.
+  // A rule's regular expression as plain words, e.g. "limited time( only)?" -> "limited time (only)"
+  function plainPattern(p) {
+    return String(p).replace(/\\b/g, "").replace(/\[- \]/g, "-").replace(/\(\?:/g, "(").replace(/\\s[?*+]?/g, " ").replace(/[?*+\\^$]/g, "")
+      .replace(/\(\s+/g, "(").replace(/(\S)\(/g, "$1 (").replace(/\s+/g, " ").trim();
+  }
   function applyRuleChange(kit, change, by, at) {
     const k = JSON.parse(JSON.stringify(kit));
     const rule = (k.rules || []).find(r => r.id === change.ruleId);
@@ -601,7 +606,7 @@
     if (b.detail !== a.detail) parts.push("clearer wording");
     if (b.severity !== a.severity) parts.push("severity " + b.severity + " \u2192 " + a.severity);
     const removed = b.patterns.filter(p => !a.patterns.includes(p));
-    if (removed.length) parts.push("stopped flagging " + removed.map(p => "\u201c" + p.replace(/\\/g, "") + "\u201d").join(", "));
+    if (removed.length) parts.push("stopped flagging " + removed.map(p => "\u201c" + plainPattern(p) + "\u201d").join(", "));
     if (a.examples && ((a.examples.allowed || []).length || (a.examples.notAllowed || []).length)) parts.push("added examples");
     return parts.join("; ") || "no change";
   }
@@ -619,7 +624,7 @@
     return k;
   }
 
-  const api = { analyseGaps, suggestRuleChange, validateRuleChange, applyRuleChange, revertRuleChange, runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
+  const api = { plainPattern, analyseGaps, suggestRuleChange, validateRuleChange, applyRuleChange, revertRuleChange, runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
     sortIssues, dedupe, isExpired, contrast, hexToRgb, camelHashtag, norm, todayISO, SEV_ORDER };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PP = api;
