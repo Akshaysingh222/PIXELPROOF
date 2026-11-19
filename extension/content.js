@@ -82,8 +82,10 @@
   btn.addEventListener("mousedown", e => e.preventDefault()); // keep the caret in the editor
   btn.addEventListener("click", () => { openPanel(); recheck(true); });
 
+  function hasText(el) { return !!String(el.tagName === "TEXTAREA" ? el.value : el.textContent).replace(/[\s\u200b]/g, ""); }
   function place() {
     if (!editor || !editor.isConnected) { btnHost.style.display = "none"; return; }
+    if (!hasText(editor) && panelHost.style.display !== "block") { btnHost.style.display = "none"; return; } // nothing to check yet
     const r = editor.getBoundingClientRect();
     if (r.width < 40 || r.height < 10 || r.bottom < 0 || r.top > innerHeight) { btnHost.style.display = "none"; return; }
     btnHost.style.display = "block";
@@ -202,10 +204,20 @@
       root.appendChild(st); root.__ppStyled = true;
     }
   }
+  // A box inside a pop-up window (a <dialog> opened as modal, or a popover) sits in the browser's "top layer",
+  // above everything else on the page. LinkedIn's post window is one. The button and panel must go inside it to be seen.
+  function layerFor(ed) {
+    for (const n of ancestors(ed)) {
+      if (n.nodeType !== 1) continue;
+      try { if (n.matches("dialog[open], :popover-open")) return n; } catch (e) { if (n.matches("dialog[open]")) return n; }
+    }
+    return document.documentElement;
+  }
   function useEditor(ed) {
     if (!ed) return;
     if (ed !== editor) { editor = ed; aiRun++; state = { result: null, ai: null, text: "" }; ignored.clear(); setBadge(); styleRoot(ed); if (panelHost.style.display === "block") recheck(false); }
-    if (!btnHost.isConnected) document.documentElement.append(btnHost, panelHost);
+    const parent = layerFor(ed);
+    if (btnHost.parentNode !== parent) parent.append(btnHost, panelHost);
     place();
   }
   function inEditor(e) { return editor && pathOf(e).includes(editor); }
@@ -221,5 +233,8 @@
   }, true);
   addEventListener("scroll", () => requestAnimationFrame(place), true);
   addEventListener("resize", () => requestAnimationFrame(place));
-  setInterval(() => { if (!editor || !editor.isConnected) useEditor(editorFromPath(ancestors(deepActive()))); place(); }, 1000);
+  setInterval(() => {
+    if (!editor || !editor.isConnected) { editor = null; if (!document.documentElement.contains(btnHost) || btnHost.parentNode !== document.documentElement) { document.documentElement.append(btnHost, panelHost); panelHost.style.display = "none"; clearHighlights(); } useEditor(editorFromPath(ancestors(deepActive()))); }
+    place();
+  }, 1000);
 })();
