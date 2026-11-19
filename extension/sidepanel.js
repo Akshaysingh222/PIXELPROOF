@@ -15,12 +15,18 @@
     draw();
     if (cfg.aiOn) await runAI();
   }
+  let aiRun = 0; // only the latest AI request counts
   async function runAI() {
     const r = state.result; state.ai = "running"; draw();
+    const my = ++aiRun;
     let res; try { res = await X.checkAI(state.text, cfg.kit, $type.value, r.issues); } catch (e) { res = { ok: false, error: "Couldn't reach PixelProof." }; }
-    if (state.result !== r) return;
-    state.ai = res;
-    if (res.ok) { r.issues = PP.sortIssues(r.issues.concat(res.issues)); r.verified = r.verified.concat(res.verified); }
+    if (my !== aiRun) return;
+    // the text may have changed while the AI was working (a fix): keep only findings that still apply
+    const cur = state.result; state.ai = res;
+    if (res.ok) {
+      cur.issues = PP.sortIssues(cur.issues.concat(res.issues.filter(i => !i.excerpt || state.text.includes(i.excerpt))));
+      cur.verified = cur.verified.concat(res.verified.filter(v => state.text.includes(v.excerpt)));
+    }
     draw();
   }
   function draw() {

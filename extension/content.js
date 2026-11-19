@@ -135,15 +135,22 @@
     update();
     if (withAI && cfg.aiOn && text.trim()) await runAI();
   }
+  let aiRun = 0; // only the latest AI request counts
   async function runAI() {
-    const r = state.result; if (!r || state.ai === "running") return;
+    const r = state.result; if (!r) return;
+    const my = ++aiRun;
     state.ai = "running"; drawPanel();
     let res;
     try { res = await X.checkAI(state.text, cfg.kit, SITE.type, r.issues); }
     catch (e) { res = { ok: false, error: "Couldn't reach PixelProof. Rule and fact checks still ran." }; }
-    if (state.result !== r) return; // a newer check started
+    if (my !== aiRun) return;
+    // the draft may have changed while the AI was working (a fix or typing): keep only findings that still apply
+    const cur = state.result; if (!cur) return;
     state.ai = res;
-    if (res.ok) { res.issues.forEach(i => { if (ignored.has(i.ruleId + "|" + i.excerpt)) i.status = "dismissed"; r.issues.push(i); }); r.issues = PP.sortIssues(r.issues); r.verified = r.verified.concat(res.verified); }
+    if (res.ok) {
+      res.issues.filter(i => !i.excerpt || state.text.includes(i.excerpt)).forEach(i => { if (ignored.has(i.ruleId + "|" + i.excerpt)) i.status = "dismissed"; cur.issues.push(i); });
+      cur.issues = PP.sortIssues(cur.issues); cur.verified = cur.verified.concat(res.verified.filter(v => state.text.includes(v.excerpt)));
+    }
     update();
   }
 
@@ -172,7 +179,7 @@
   }
   document.addEventListener("focusin", e => {
     const ed = editorFrom(e.target); if (!ed) return;
-    if (ed !== editor) { editor = ed; state = { result: null, ai: null, text: "" }; ignored.clear(); setBadge(); if (panelHost.style.display === "block") recheck(false); }
+    if (ed !== editor) { editor = ed; aiRun++; state = { result: null, ai: null, text: "" }; ignored.clear(); setBadge(); if (panelHost.style.display === "block") recheck(false); }
     if (!btnHost.isConnected) document.documentElement.append(btnHost, panelHost);
     place();
   }, true);
