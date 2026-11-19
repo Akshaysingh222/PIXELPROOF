@@ -37,6 +37,8 @@ Plus reliability and usability work: see [What was tightened](#what-was-tightene
 | **Gap detector:** T-1 is "likely unclear"; AI drafts clearer wording with allowed and not-allowed examples | **Brand kit history:** every approved change, who made it, before/after, undo |
 | ![Extension checking an X draft in place](docs/screenshots/extension-x.png) | ![Team workspace: creator on another device sees the approval](docs/screenshots/team-creator.png) |
 | **Extension:** an X draft checked in the compose box, issues underlined in place | **Team workspace:** the creator's device shows the reviewer's approval |
+| ![Guideline import: proposals from the sample guideline, each with its quote](docs/screenshots/guideline-import.png) | ![Real LinkedIn post window checked by the extension](docs/screenshots/extension-x.png) |
+| **Guideline import:** every proposal shows the sentence it came from; the manager ticks what to keep | |
 | ![Clean ad passing, with claims verified against a fact](docs/screenshots/live-clean-ad.png) | ![Wrong figures flagged as blockers with the approved figure as the fix](docs/screenshots/live-fact-checks.png) |
 | Claims verified against fact F-03; one wrong AI answer thrown out by code | "12%" and "5 lakh" don't match the approved facts |
 
