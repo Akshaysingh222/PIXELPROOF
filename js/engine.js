@@ -110,8 +110,8 @@
           if (r.id === "C-1") fixes.push({ label: "Remove the promise", replacement: "" });
           else if (r.id === "C-4") fixes.push({ label: "Remove the competitor name", replacement: "" });
           else if (r.fix !== undefined && r.fix !== "") fixes.push({ label: "Use “" + r.fix.trim() + "”", replacement: r.fix });
-          out.push(issue({ ruleId: r.id, category: r.category, severity: r.severity, excerpt: m[0], index: m.index,
-            message: r.title + ". " + r.detail, reference: refFor(r), fixes }));
+          out.push(issue({ ruleId: r.id, category: r.category, severity: r.severity, excerpt: m[0], index: m.index, pattern: p,
+            message: r.title + ". " + r.detail, reference: refFor(r), fixes, examples: r.examples }));
         }
       }
     }
@@ -466,7 +466,148 @@
   }
 
 
-  const api = { runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
+  // ---------- GUIDELINE GAP DETECTOR ----------
+  // Looks at everything people did with the flags in submitted work and finds rules that seem unclear.
+  // Signals for a rule:
+  //   dismissed  - the creator said the flag was wrong (with a reason)
+  //   overridden - the reviewer marked an open flag "OK to publish"
+  //   disagreed  - the reviewer disagreed with a dismissal (the creator misread the rule)
+  //   fixed      - the creator accepted a fix (the rule worked)
+  // Only signals newer than the rule's last approved change count, so fixing a rule "resets" it.
+  function analyseGaps(items, kit) {
+    const byRule = {};
+    const seen = new Set();
+    const get = id => (byRule[id] = byRule[id] || { ruleId: id, flagged: 0, dismissed: 0, overridden: 0, disagreed: 0, fixed: 0,
+      reasons: [], pushedExcerpts: [], fixedExcerpts: [], patterns: {} });
+    const ruleOf = id => (kit.rules || []).find(r => r.id === id);
+    for (const it of items || []) {
+      for (const v of it.versions || []) {
+        const at = v.at || "";
+        const counts = (id) => { const r = ruleOf(id); return !r || !r.revisedAt || at > r.revisedAt; };
+        for (const i of v.issues || []) {
+          if (!ruleOf(i.ruleId) || !counts(i.ruleId)) continue;
+          const key = it.id + "|" + i.ruleId + "|" + norm(i.excerpt) + "|" + (i.status === "dismissed" ? "d" : "o");
+          if (seen.has(key)) continue; // the same flag carried into a later version counts once
+          seen.add(key);
+          const g = get(i.ruleId); g.flagged++;
+          if (i.pattern) g.patterns[i.pattern] = g.patterns[i.pattern] || { flagged: 0, pushed: 0, fixed: 0 };
+          if (i.pattern) g.patterns[i.pattern].flagged++;
+          if (i.status === "dismissed") {
+            g.dismissed++; if (i.reason) g.reasons.push({ kind: "Creator dismissed", text: i.reason, excerpt: i.excerpt });
+            if (i.review === "rejected") { g.disagreed++; g.fixedExcerpts.push(i.excerpt); }
+            else { g.pushedExcerpts.push(i.excerpt); if (i.pattern) g.patterns[i.pattern].pushed++; }
+          }
+          if (i.override) {
+            g.overridden++; g.reasons.push({ kind: "Reviewer allowed it", text: i.override, excerpt: i.excerpt });
+            g.pushedExcerpts.push(i.excerpt); if (i.pattern) g.patterns[i.pattern].pushed++;
+          }
+        }
+        for (const f of v.fixed || []) {
+          if (!ruleOf(f.ruleId) || !counts(f.ruleId)) continue;
+          const key = it.id + "|" + f.ruleId + "|" + norm(f.excerpt) + "|f";
+          if (seen.has(key)) continue; seen.add(key);
+          const g = get(f.ruleId); g.flagged++; g.fixed++; g.fixedExcerpts.push(f.excerpt);
+          if (f.pattern && g.patterns[f.pattern]) g.patterns[f.pattern].fixed++;
+        }
+      }
+    }
+    const out = Object.values(byRule).map(g => {
+      g.pushback = g.dismissed + g.overridden; // each one means someone read the rule differently
+      g.rate = g.flagged ? g.pushback / g.flagged : 0;
+      g.level = g.pushback >= 2 && g.rate >= 0.4 ? "unclear" : g.pushback >= 1 ? "watch" : "ok";
+      g.rule = ruleOf(g.ruleId);
+      g.pushedExcerpts = uniq(g.pushedExcerpts); g.fixedExcerpts = uniq(g.fixedExcerpts);
+      return g;
+    }).filter(g => g.pushback > 0);
+    out.sort((a, b) => (b.level === "unclear") - (a.level === "unclear") || b.pushback - a.pushback || b.rate - a.rate);
+    return out;
+  }
+  function uniq(a) { const s = new Set(); return a.filter(x => { const k = norm(x); if (!x || s.has(k)) return false; s.add(k); return true; }); }
+
+  // A suggested change worked out by code alone (used when the AI is off, and as the starting point for the AI).
+  // - examples come from real content: what people were allowed to publish vs what they fixed
+  // - a phrase is suggested for removal if every time it was flagged people pushed back and nobody fixed it
+  // - if reviewers keep allowing it, the severity drops one level
+  function suggestRuleChange(gap) {
+    const r = gap.rule || {};
+    const lower = { blocker: "warning", warning: "suggestion", suggestion: "suggestion" };
+    const removePatterns = Object.entries(gap.patterns || {})
+      .filter(([, c]) => c.pushed >= 1 && c.fixed === 0 && c.pushed === c.flagged).map(([p]) => p);
+    return {
+      ruleId: r.id,
+      detail: r.detail || "",
+      allowed: gap.pushedExcerpts.slice(0, 3),
+      notAllowed: gap.fixedExcerpts.slice(0, 3),
+      severity: gap.overridden >= 2 ? lower[r.severity] || r.severity : r.severity,
+      removePatterns,
+      rationale: "Based on " + gap.flagged + " flag" + (gap.flagged === 1 ? "" : "s") + ": " + gap.dismissed + " dismissed, " +
+        gap.overridden + " allowed by a reviewer, " + gap.fixed + " fixed.",
+      source: "code"
+    };
+  }
+
+  // Checks a suggested change (from the AI or a person) before it can be approved.
+  // Patterns can only be removed if they really belong to the rule; severity must be a real level; text is trimmed.
+  function validateRuleChange(change, rule) {
+    const errors = [];
+    const clean = s => String(s || "").replace(/\s+/g, " ").trim().slice(0, 400);
+    const list = a => (Array.isArray(a) ? a : String(a || "").split("\n")).map(clean).filter(Boolean).slice(0, 5);
+    const out = {
+      ruleId: rule.id,
+      detail: clean(change.detail),
+      allowed: list(change.allowed),
+      notAllowed: list(change.notAllowed),
+      severity: SEV_ORDER[change.severity] !== undefined ? change.severity : rule.severity,
+      removePatterns: (change.removePatterns || []).filter(p => (rule.patterns || []).includes(p)),
+      rationale: clean(change.rationale),
+      source: change.source || "person"
+    };
+    if (out.detail.length < 10) errors.push("The rule wording is too short.");
+    if (out.removePatterns.length && out.removePatterns.length === (rule.patterns || []).length) errors.push("At least one phrase has to stay, or turn the rule off instead.");
+    return { change: out, errors };
+  }
+
+  // Applies an approved change to the brand kit and records it in the guideline history.
+  function applyRuleChange(kit, change, by, at) {
+    const k = JSON.parse(JSON.stringify(kit));
+    const rule = (k.rules || []).find(r => r.id === change.ruleId);
+    if (!rule) throw new Error("Rule " + change.ruleId + " not found");
+    const before = { detail: rule.detail, severity: rule.severity, patterns: (rule.patterns || []).slice(), examples: rule.examples || null };
+    rule.detail = change.detail;
+    rule.severity = change.severity;
+    rule.patterns = (rule.patterns || []).filter(p => !change.removePatterns.includes(p));
+    rule.examples = { allowed: change.allowed, notAllowed: change.notAllowed };
+    rule.revisedAt = at;
+    k.version = (k.version || 1) + 1;
+    const after = { detail: rule.detail, severity: rule.severity, patterns: rule.patterns.slice(), examples: rule.examples };
+    k.history = (k.history || []).concat([{ version: k.version, at, by, ruleId: rule.id, title: rule.title, before, after,
+      summary: summariseChange(before, after), rationale: change.rationale, source: change.source }]);
+    return k;
+  }
+  function summariseChange(b, a) {
+    const parts = [];
+    if (b.detail !== a.detail) parts.push("clearer wording");
+    if (b.severity !== a.severity) parts.push("severity " + b.severity + " \u2192 " + a.severity);
+    const removed = b.patterns.filter(p => !a.patterns.includes(p));
+    if (removed.length) parts.push("stopped flagging " + removed.map(p => "\u201c" + p.replace(/\\/g, "") + "\u201d").join(", "));
+    if (a.examples && ((a.examples.allowed || []).length || (a.examples.notAllowed || []).length)) parts.push("added examples");
+    return parts.join("; ") || "no change";
+  }
+  // Puts a rule back to how it was before a recorded change (also recorded in the history).
+  function revertRuleChange(kit, entry, by, at) {
+    const k = JSON.parse(JSON.stringify(kit));
+    const rule = (k.rules || []).find(r => r.id === entry.ruleId);
+    if (!rule) throw new Error("Rule " + entry.ruleId + " not found");
+    const before = { detail: rule.detail, severity: rule.severity, patterns: (rule.patterns || []).slice(), examples: rule.examples || null };
+    rule.detail = entry.before.detail; rule.severity = entry.before.severity; rule.patterns = entry.before.patterns.slice();
+    rule.examples = entry.before.examples || undefined; rule.revisedAt = at;
+    k.version = (k.version || 1) + 1;
+    k.history = (k.history || []).concat([{ version: k.version, at, by, ruleId: rule.id, title: rule.title, before,
+      after: entry.before, summary: "undid version " + entry.version, source: "person" }]);
+    return k;
+  }
+
+  const api = { analyseGaps, suggestRuleChange, validateRuleChange, applyRuleChange, revertRuleChange, runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
     sortIssues, dedupe, isExpired, contrast, hexToRgb, camelHashtag, norm, todayISO, SEV_ORDER };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PP = api;

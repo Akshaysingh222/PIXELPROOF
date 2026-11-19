@@ -104,3 +104,57 @@ test("AI can't raise rules that code checks exactly, or suggest a fix that chang
   ] }, text, kit, TODAY, []);
   assert.strictEqual(v.issues.length, 0); assert.strictEqual(v.dropped.length, 2);
 });
+
+// ---------- guideline gap detector ----------
+function mkItem(id, at, issues, fixed) { return { id, versions: [{ v: 1, at, issues, fixed: fixed || [] }] }; }
+const gapItems = () => [
+  mkItem("a", "2026-11-20T10:00:00Z", [{ ruleId: "T-1", excerpt: "limited time", pattern: "limited time( only)?", status: "dismissed", reason: "Real offer, ends Sunday" }]),
+  mkItem("b", "2026-11-20T11:00:00Z", [{ ruleId: "T-1", excerpt: "Limited time", pattern: "limited time( only)?", status: "open", override: "Legal approved the deadline" }]),
+  mkItem("c", "2026-11-20T12:00:00Z", [], [{ ruleId: "T-1", excerpt: "Hurry", pattern: "hurry", replacement: "" }])
+];
+
+test("gap detector flags a rule people keep pushing back on", () => {
+  const gaps = E.analyseGaps(gapItems(), kit);
+  assert.strictEqual(gaps[0].ruleId, "T-1");
+  assert.strictEqual(gaps[0].level, "unclear");
+  assert.strictEqual(gaps[0].dismissed, 1); assert.strictEqual(gaps[0].overridden, 1); assert.strictEqual(gaps[0].fixed, 1);
+  assert.strictEqual(gaps[0].reasons.length, 2);
+});
+
+test("the same flag carried into a second version only counts once", () => {
+  const it = { id: "x", versions: [
+    { at: "2026-11-20T10:00:00Z", issues: [{ ruleId: "T-1", excerpt: "act now", status: "dismissed", reason: "ok here" }] },
+    { at: "2026-11-20T11:00:00Z", issues: [{ ruleId: "T-1", excerpt: "act now", status: "dismissed", reason: "ok here" }] }] };
+  assert.strictEqual(E.analyseGaps([it], kit)[0].dismissed, 1);
+});
+
+test("suggested change uses real examples and only removes phrases nobody fixed", () => {
+  const g = E.analyseGaps(gapItems(), kit)[0];
+  const s = E.suggestRuleChange(g);
+  assert.deepStrictEqual(s.removePatterns, ["limited time( only)?"]);
+  assert.ok(s.allowed.includes("limited time")); assert.ok(s.notAllowed.includes("Hurry"));
+});
+
+test("an approved change updates the next check and is recorded in history", () => {
+  const rule = kit.rules.find(r => r.id === "T-1");
+  const { change, errors } = E.validateRuleChange({ detail: "No false urgency. A real deadline is fine if you give the date calmly.",
+    severity: "warning", removePatterns: ["limited time( only)?", "not-a-real-pattern"], allowed: ["Offer ends 2 Nov"], notAllowed: ["Hurry!"] }, rule);
+  assert.deepStrictEqual(errors, []);
+  assert.deepStrictEqual(change.removePatterns, ["limited time( only)?"]); // made-up patterns are ignored
+  const before = E.runLocal("Limited time offer for savers.", kit, TODAY).issues.filter(i => i.ruleId === "T-1").length;
+  const k2 = E.applyRuleChange(kit, change, "Arjun", "2026-11-20T13:00:00Z");
+  const after = E.runLocal("Limited time offer for savers.", k2, TODAY).issues.filter(i => i.ruleId === "T-1").length;
+  assert.strictEqual(before, 1); assert.strictEqual(after, 0);
+  assert.strictEqual(k2.history.length, 1); assert.match(k2.history[0].summary, /stopped flagging/);
+  // older signals no longer count once the rule has been revised
+  assert.strictEqual(E.analyseGaps(gapItems(), k2).length, 0);
+  // and the change can be undone
+  const k3 = E.revertRuleChange(k2, k2.history[0], "Arjun", "2026-11-20T14:00:00Z");
+  assert.strictEqual(E.runLocal("Limited time offer for savers.", k3, TODAY).issues.filter(i => i.ruleId === "T-1").length, 1);
+});
+
+test("a change can't remove every phrase or have empty wording", () => {
+  const rule = kit.rules.find(r => r.id === "T-2");
+  const { errors } = E.validateRuleChange({ detail: "x", removePatterns: rule.patterns }, rule);
+  assert.strictEqual(errors.length, 2);
+});

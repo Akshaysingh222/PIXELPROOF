@@ -7,10 +7,12 @@
 // 2. We mask personal details again, build a prompt, and ask Gemini for a JSON answer.
 // 3. If the main model is slow or busy we try a faster backup model.
 // 4. We send the answer back. The browser verifies it (engine.js verifyAI) before showing it.
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-2.5-flash-lite"; // faster backup when the main model is slow or busy
+// It also has a second job (mode "rule"): drafting clearer wording for a brand rule people keep pushing back on.
+// Gemini 3.5 Flash-Lite is fast and good at structured JSON; 3.6 Flash is the backup. Both can be changed in Vercel.
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
 const MAX_CHARS = 6000;
-const VERSION = "2026-11-15.4";
+const VERSION = "2026-11-20.1";
 const hits = new Map(); // tiny per-instance rate limit to protect the API quota and cost
 
 function maskPII(text) {
@@ -27,18 +29,20 @@ function maskPII(text) {
 // what our rules already found (so it doesn't repeat them), and the exact answer format.
 function buildPrompt({ text, contentType, kit, facts, alreadyFound }) {
   const rules = (kit.rules || []).filter(r => r.enabled !== false && !["V-1", "V-2", "A-5"].includes(r.id))
-    .map(r => `- ${r.id} [${r.category}, ${r.severity}] ${r.title}: ${r.detail}`).join("\n");
-  const glossary = (kit.glossary || []).map(g => `- ${g.id}: use "${g.use}", avoid ${g.avoid.map(a => `"${a}"`).join(", ")}`).join("\n");
-  const factList = facts.map(f => `- ${f.id}: ${f.text}`).join("\n");
+    .map(r => `- ${r.id} [${r.category}, ${r.severity}] ${r.title}: ${r.detail}` + examplesText(r.examples)).join("\n");
+  const glossary = (kit.glossary || []).map(g => `- ${g.id}: use "${g.use}", avoid ${(g.avoid || []).map(a => `"${a}"`).join(", ")}`).join("\n");
+  const factList = (facts || []).map(f => `- ${f.id}: ${f.text}`).join("\n") || "- none";
+  const voice = kit.voice || {};
+  const join = a => (Array.isArray(a) ? a.join("; ") : "");
   const found = (alreadyFound || []).slice(0, 40).map(i => `- ${i.ruleId}: "${i.excerpt}"`).join("\n") || "- none";
   return `You are a brand reviewer for ${kit.brand}. Check the ${contentType || "content"} below against the brand kit. Be specific and fair. Only use the rules and facts given here.
 
-BRAND VOICE: ${kit.voice.summary}
-Do: ${kit.voice.do.join("; ")}
-Don't: ${kit.voice.dont.join("; ")}
-Good example: ${kit.voice.goodExample}
-Bad example: ${kit.voice.badExample}
-KEY MESSAGES: ${(kit.messaging || []).join("; ")}
+BRAND VOICE: ${voice.summary || "not given"}
+Do: ${join(voice.do)}
+Don't: ${join(voice.dont)}
+Good example: ${voice.goodExample || ""}
+Bad example: ${voice.badExample || ""}
+KEY MESSAGES: ${join(kit.messaging)}
 
 RULES (cite these ids):
 ${rules}
@@ -69,6 +73,42 @@ Guidance:
 - rewrites must not add any fact, number or promise that is not in the approved facts.`;
 }
 
+function examplesText(ex) {
+  if (!ex) return "";
+  const a = (ex.allowed || []).map(x => `"${x}"`).join(", "), n = (ex.notAllowed || []).map(x => `"${x}"`).join(", ");
+  return (a ? ` Allowed: ${a}.` : "") + (n ? ` Not allowed: ${n}.` : "");
+}
+
+// The prompt for mode "rule": the AI drafts clearer wording for one rule, using what people actually did.
+function buildRulePrompt({ kit, rule, gap }) {
+  const reasons = (gap.reasons || []).slice(0, 10).map(r => `- ${r.kind} "${r.excerpt}": ${r.text}`).join("\n") || "- none";
+  return `You help a brand manager at ${kit.brand || "a company"} fix an unclear brand guideline.
+People keep pushing back on this rule, which suggests the wording is unclear or too strict.
+
+RULE ${rule.id}: ${rule.title}
+Current wording: ${rule.detail}
+Severity: ${rule.severity}
+Phrases it flags (regular expressions): ${(rule.patterns || []).map(p => JSON.stringify(p)).join(", ") || "none"}
+
+WHAT HAPPENED (${gap.flagged} flags: ${gap.dismissed} dismissed by creators, ${gap.overridden} allowed by reviewers, ${gap.fixed} fixed):
+${reasons}
+Words people were allowed to publish: ${(gap.pushedExcerpts || []).map(x => JSON.stringify(x)).join(", ") || "none"}
+Words people fixed (the rule worked): ${(gap.fixedExcerpts || []).map(x => JSON.stringify(x)).join(", ") || "none"}
+
+Write a clearer version of the rule that keeps its purpose. Return JSON:
+{ "detail": "the new wording, one or two plain sentences that explain the line between allowed and not allowed",
+  "allowed": ["up to 3 short examples that are fine"], "notAllowed": ["up to 3 short examples that are not"],
+  "severity": "blocker|warning|suggestion", "removePatterns": ["only phrases copied exactly from the list above that should stop being flagged"],
+  "rationale": "one sentence explaining the change" }
+Do not weaken the rule's purpose. Only remove a phrase if the evidence shows it is usually fine.`;
+}
+const RULE_SCHEMA = {
+  type: "OBJECT",
+  properties: { detail: { type: "STRING" }, allowed: { type: "ARRAY", items: { type: "STRING" } }, notAllowed: { type: "ARRAY", items: { type: "STRING" } },
+    severity: { type: "STRING" }, removePatterns: { type: "ARRAY", items: { type: "STRING" } }, rationale: { type: "STRING" } },
+  required: ["detail", "allowed", "notAllowed", "severity", "removePatterns", "rationale"]
+};
+
 // Structured output: Gemini must answer in exactly this shape, so the JSON is valid.
 const STR = { type: "STRING" };
 const SCHEMA = {
@@ -91,13 +131,13 @@ function parseJSON(raw) {
   return JSON.parse(t);
 }
 
-async function callGemini(prompt, key, strict, model, ms) {
+async function callGemini(prompt, key, strict, model, ms, schema) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms || 20000);
   const generationConfig = { temperature: 0.2, responseMimeType: "application/json", maxOutputTokens: 8192 };
-  // Gemini 2.5 "thinking" uses up the output budget and can cut the JSON short, so turn it off.
+  // Older Gemini 2.5 models "think" by default, which can use up the output budget and cut the JSON short.
   if (/2\.5-flash/.test(model)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
-  if (strict) generationConfig.responseSchema = SCHEMA;
+  if (strict) generationConfig.responseSchema = schema || SCHEMA;
   try {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
       method: "POST",
@@ -118,18 +158,25 @@ async function callGemini(prompt, key, strict, model, ms) {
   } finally { clearTimeout(timer); }
 }
 
-async function askGemini(prompt, key) {
+async function askGemini(prompt, key, schema) {
   // 1) main model, strict JSON  2) main model, relaxed (if the strict settings were refused)
-  // 3) faster backup model if the main one is slow, busy or out of quota
-  try { return { ai: await callGemini(prompt, key, true, MODEL, 20000), model: MODEL }; }
+  // 3) backup model if the main one is slow, busy, retired or out of quota
+  try { return { ai: await callGemini(prompt, key, true, MODEL, 20000, schema), model: MODEL }; }
   catch (e) {
-    const slowOrBusy = e.name === "AbortError" || [429, 500, 503].includes(e.status);
+    const slowOrBusy = e.name === "AbortError" || [404, 429, 500, 503].includes(e.status);
     if (!slowOrBusy) {
-      try { return { ai: await callGemini(prompt, key, false, MODEL, 15000), model: MODEL }; } catch (e2) { /* fall through to backup */ }
+      try { return { ai: await callGemini(prompt, key, false, MODEL, 15000, schema), model: MODEL }; } catch (e2) { /* fall through to backup */ }
     }
-    if (FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) return { ai: await callGemini(prompt, key, true, FALLBACK_MODEL, 15000), model: FALLBACK_MODEL };
+    if (FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) return { ai: await callGemini(prompt, key, true, FALLBACK_MODEL, 20000, schema), model: FALLBACK_MODEL };
     throw e;
   }
+}
+
+function cleanRule(ai) {
+  const s = v => (typeof v === "string" ? v.slice(0, 600) : "");
+  const list = a => (Array.isArray(a) ? a : []).slice(0, 5).map(s).filter(Boolean);
+  return { detail: s(ai.detail), allowed: list(ai.allowed), notAllowed: list(ai.notAllowed), severity: s(ai.severity),
+    removePatterns: list(ai.removePatterns), rationale: s(ai.rationale) };
 }
 
 // Keep only the fields we expect, and limit their length.
@@ -142,10 +189,19 @@ function clean(ai) {
   };
 }
 
+// Lets the Chrome extension call this function from LinkedIn, Gmail and X.
+function cors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store");
+  cors(res);
+  if (req.method === "OPTIONS") return res.status(204).end();
   const key = process.env.GEMINI_API_KEY;
-  if (req.method === "GET") return res.status(200).json({ aiEnabled: !!key, model: key ? MODEL : null, provider: key ? "Google Gemini API" : null, version: VERSION });
+  if (req.method === "GET") return res.status(200).json({ aiEnabled: !!key, model: key ? MODEL : null, backupModel: key ? FALLBACK_MODEL : null, provider: key ? "Google Gemini API" : null, version: VERSION });
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Use POST" });
   if (!key) return res.status(200).json({ ok: false, error: "AI is not configured on this deployment. Rule and fact checks still ran." });
 
@@ -154,15 +210,32 @@ module.exports = async function handler(req, res) {
   if (list.length >= 12) return res.status(200).json({ ok: false, error: "Too many AI checks in a minute. Rule and fact checks still ran; try the AI check again shortly." });
   list.push(now); hits.set(ip, list);
 
+  let body;
+  try { body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {}); }
+  catch (e) { return res.status(400).json({ ok: false, error: "The request wasn't valid JSON." }); }
+  const kit = body.kit && typeof body.kit === "object" ? body.kit : null;
+  if (!kit || !Array.isArray(kit.rules)) return res.status(400).json({ ok: false, error: "Missing brand kit." });
+
   try {
-    const body = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
-    if (!body.text || !body.kit) return res.status(400).json({ ok: false, error: "Missing text or brand kit" });
-    const masked = maskPII(String(body.text).slice(0, MAX_CHARS));
-    const prompt = buildPrompt({ text: masked.text, contentType: body.contentType, kit: body.kit, facts: (body.facts || []).slice(0, 8), alreadyFound: body.alreadyFound });
+    if (body.mode === "rule") {
+      const rule = body.rule && typeof body.rule === "object" ? body.rule : null;
+      if (!rule || !rule.id) return res.status(400).json({ ok: false, error: "Missing rule." });
+      const out = await askGemini(buildRulePrompt({ kit, rule, gap: body.gap || {} }), key, RULE_SCHEMA);
+      return res.status(200).json({ ok: true, model: out.model, change: cleanRule(out.ai) });
+    }
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    if (!text) return res.status(400).json({ ok: false, error: "There's no text to check." });
+    const masked = maskPII(text.slice(0, MAX_CHARS));
+    const prompt = buildPrompt({ text: masked.text, contentType: body.contentType, kit, facts: (body.facts || []).slice(0, 8), alreadyFound: body.alreadyFound });
     const out = await askGemini(prompt, key);
-    return res.status(200).json({ ok: true, model: out.model, masked: masked.count, ai: clean(out.ai) });
+    return res.status(200).json({ ok: true, model: out.model, masked: masked.count, truncated: text.length > MAX_CHARS, ai: clean(out.ai) });
   } catch (e) {
     const why = e.status === 429 ? "the AI service is busy, try again in a minute" : e.name === "AbortError" ? "it took too long" : String(e.message || e).slice(0, 160);
     return res.status(200).json({ ok: false, error: "The AI check didn't finish (" + why + "). Rule and fact checks still ran." });
   }
 };
+
+// Exported for the tests.
+module.exports.maskPII = maskPII;
+module.exports.parseJSON = parseJSON;
+module.exports.buildPrompt = buildPrompt;
