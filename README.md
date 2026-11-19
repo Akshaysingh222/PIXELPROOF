@@ -152,6 +152,17 @@ The anon key is public by design. Row level security in `schema.sql` decides who
 | Extension | Playwright loads the real extension into Chrome and uses pages with the same compose-box markup as LinkedIn (Quill editor), Gmail (message body) and X (Draft.js): button appears, issues listed and underlined, AI review, fix applied in the box (also while the AI is still running), ignore, Send to review queue; harder layouts (box already focused when the page loads, a post window opened as a modal dialog like LinkedIn's, editor inside shadow DOM, editor inside a frame); no button while the box is empty; side panel with selected text; options | 45 / 45 pass |
 | Real sites | By hand on 19 Nov 2026 with my own accounts: extension loaded unpacked from the repository; a draft checked on linkedin.com, mail.google.com and x.com, AI review finished, Send to review queue opened the draft in PixelProof. Team workspace checked live with a laptop (Arjun) and a phone (Riya) | works |
 
+### User test
+On 20 November 2026, three people who had never seen PixelProof tried it on the live site. The task: *"You write posts for a savings app called Kitebird Money. Check a risky post, fix it until you're allowed to submit it, then approve it as the brand manager."* I gave no help, and noted whether they finished, how long it took and what confused them.
+
+| Tester | Finished | Time | What happened | What I changed |
+| --- | --- | --- | --- | --- |
+| Amartya Thakur | Yes | ~5 min | Understood each flag and the fixes straight away; found the checking useful | Nothing needed |
+| Nishant Sharma | Yes | ~9 min | Went beyond the task: switched between creator and brand manager and tried several other features; found it smooth | Nothing needed |
+| Abhishek Sharma | Yes | ~16 min | At first didn't understand what PixelProof was for; it clicked when he saw it works inside Gmail, X and LinkedIn | The first screen now says in plain words what PixelProof does and why, and links to the extension |
+
+All three are students, not brand professionals, so this checks that a stranger can get through the main journey alone, not how a real brand team would use it. Testing with a real brand team is month 1 of the roadmap.
+
 Limits of the tests: the AI is replaced by a stand-in that gives fixed answers, so they test how PixelProof handles AI answers (including wrong ones), not the quality of Gemini's answers. LinkedIn, Gmail and X change their pages often; if the Check button stops appearing on one of them, the side panel still works with selected text.
 
 ## What was tightened in Round 3

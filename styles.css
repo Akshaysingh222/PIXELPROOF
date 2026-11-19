@@ -191,3 +191,5 @@ label.imp { display: flex; gap: 10px; align-items: flex-start; border: 1px solid
 label.imp input[type=checkbox] { margin-top: 4px; }
 label.imp select { font-size: 12px; padding: 1px 4px; margin-left: 6px; width: auto; display: inline-block; }
 label.imp .hint { margin-top: 3px; }
+.intro p.what { color: #fff; margin: 4px 0 8px; max-width: 560px; line-height: 1.5; }
+.intro p.what a { color: #ffb59c; }

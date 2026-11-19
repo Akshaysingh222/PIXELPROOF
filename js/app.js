@@ -537,7 +537,9 @@
   function viewIntro() {
     if (S.introHidden) return "";
     return `<section class="intro" aria-label="Quick start">
-      <div><h1>Check content before it goes live.</h1><p>Demo workspace for <b>Kitebird Money</b>, a made-up savings app with a ready-made brand kit.</p>
+      <div><h1>Check content before it goes live.</h1>
+        <p class="what">Companies have brand rules: how they sound, which words to use, and which claims they can legally make. PixelProof checks posts, ads and emails against those rules <b>before</b> they're published, explains every problem, and a brand manager approves the final version. It works here and inside <b>LinkedIn, Gmail and X</b> with the <a href="#" data-act="tab" data-tab="about">Chrome extension</a>.</p>
+        <p>This demo uses <b>Kitebird Money</b>, a made-up savings app with a ready-made brand kit.</p>
         <p class="promise">✓ Every number is checked against approved facts by code. The AI can’t pass a claim on its own.</p></div>
       <ol>
         <li>Click <b>Risky LinkedIn post</b> below, then <b>Check</b></li>
