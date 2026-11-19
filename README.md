@@ -145,7 +145,7 @@ The anon key is public by design. Row level security in `schema.sql` decides who
 | Database security | `supabase/test/rls_test.sql` on Postgres 16 with a small stand-in for Supabase auth: creator can't approve (also through an upsert), can't edit the kit, can't change roles; last admin protected; outsiders and signed-out visitors see nothing; wrong join codes rejected | all pass |
 | Web app, end to end | Playwright in Chrome against the real app and API with a stand-in for Gemini, and a stand-in for the Supabase API that runs every query on the real `schema.sql`: the full creator → reviewer → revise → approve journey; the gap detector changing the next check, history and undo; empty input, double clicks, refresh mid-check, extension hand-off, bad imports, mobile width; two browsers sharing one team workspace (create, join by code, live queue updates, approval seen on the other device, database refusing a forced approval, role change, refresh, a draft from the extension, sign out) | 47 / 47 pass |
 | Extension | Playwright loads the real extension into Chrome and uses pages with the same compose-box markup as LinkedIn (Quill editor), Gmail (message body) and X (Draft.js): button appears, issues listed and underlined, AI review, fix applied in the box (also while the AI is still running), ignore, Send to review queue; harder layouts (box already focused when the page loads, a post window opened as a modal dialog like LinkedIn's, editor inside shadow DOM, editor inside a frame); no button while the box is empty; side panel with selected text; options | 45 / 45 pass |
-| Real sites | Checked by hand on linkedin.com, mail.google.com and x.com with my own accounts | see the Round 3 PDF |
+| Real sites | By hand on 19 Nov 2026 with my own accounts: extension loaded unpacked from the repository; a draft checked on linkedin.com, mail.google.com and x.com, AI review finished, Send to review queue opened the draft in PixelProof. Team workspace checked live with a laptop (Arjun) and a phone (Riya) | works |
 
 Limits of the tests: the AI is replaced by a stand-in that gives fixed answers, so they test how PixelProof handles AI answers (including wrong ones), not the quality of Gemini's answers. LinkedIn, Gmail and X change their pages often; if the Check button stops appearing on one of them, the side panel still works with selected text.
 
@@ -193,6 +193,9 @@ I'm a one-person team. I decided the idea, the scope and how each part should be
 - The team sign-in forms lost what you typed while saving → forms are read before the screen redraws, and inputs are put back after an error.
 - A screen redraw could keep asking for the workspace list in a loop → fixed, and covered by the browser test.
 - Sending a second draft from the extension while PixelProof was already open didn't load it → the app now also listens for the link changing.
+- On the real LinkedIn, the Check button didn't appear: the post window is a pop-up dialog drawn above the page, and its box already had focus when the extension loaded → the button goes inside the pop-up, and the box is also found from typing, clicks and pastes.
+- On the real X, the button covered the last words → it now sits below small boxes and only appears once there's text.
+- "Send to review queue" landed on the Review queue when signed in to a team → the incoming draft is kept until the workspace has loaded.
 
 Problems fixed in Round 2 are in the git history.
 
