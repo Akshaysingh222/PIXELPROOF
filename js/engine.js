@@ -63,10 +63,21 @@
       const before = s.slice(Math.max(0, m.index - 1), m.index);
       if (before === "#" || /no\.\s?$/i.test(s.slice(Math.max(0, m.index - 4), m.index))) continue; // "#1" is a ranking, handled by C-2
       const raw = m[0].trimEnd();
-      if (!m[2] && /^[a-z]/i.test(s.slice(m.index + raw.length, m.index + raw.length + 1))) continue; // e.g. "2nd"
+      const after = s.slice(m.index + raw.length, m.index + raw.length + 14), prior = s.slice(Math.max(0, m.index - 14), m.index);
+      if (!m[2] && /^[a-z]/i.test(after)) continue; // e.g. "2nd"
+      if (!m[2] && isDateOrTime(raw, after, prior)) continue; // "2 November", "Nov 2", "2026", "10:30", "9 am" are not claims
+      if (/^[\/-]\d/.test(after) || /\d[\/-]$/.test(prior)) continue; // "24/7", "1-1" are phrases, not figures
       out.push({ raw: raw.trim(), value: parseFloat(m[1].replace(/,/g, "")), unit: unitOf(m[2]), index: m.index });
     }
     return out;
+  }
+  const MONTH = "(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*";
+  function isDateOrTime(raw, after, prior) {
+    if (new RegExp("^\\s*(?:st|nd|rd|th)?\\s*(?:of\\s+)?" + MONTH + "\\b", "i").test(after)) return true;   // 2 November, 2nd of Nov
+    if (new RegExp(MONTH + "\\.?\\s*$", "i").test(prior)) return true;                                           // November 2, Nov 2026
+    if (/^:\d/.test(after) || /\d:$/.test(prior) || /^\s*(?:am|pm|a\.m\.|p\.m\.)\b/i.test(after)) return true; // 10:30, 9 am
+    if (/^(19|20)\d\d$/.test(raw) && !/[,\u20b9]/.test(raw)) return true;                                            // a year like 2026
+    return false;
   }
   // Two numbers match if the value is the same and the unit is the same (or one has no unit).
   function sameNumber(a, b) { return Math.abs(a.value - b.value) < 1e-9 && (a.unit === b.unit || !a.unit || !b.unit); }

@@ -175,6 +175,7 @@ revoke all on function public.create_workspace(text, jsonb, text) from public, a
 revoke all on function public.join_workspace(text, text) from public, anon;
 revoke all on function public.set_member_role(uuid, uuid, text) from public, anon;
 revoke all on function public.set_display_name(uuid, text) from public, anon;
+grant usage on schema public to authenticated;
 grant execute on function public.my_role(uuid) to authenticated;
 grant execute on function public.create_workspace(text, jsonb, text) to authenticated;
 grant execute on function public.join_workspace(text, text) to authenticated;

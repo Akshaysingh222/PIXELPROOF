@@ -158,3 +158,10 @@ test("a change can't remove every phrase or have empty wording", () => {
   const { errors } = E.validateRuleChange({ detail: "x", removePatterns: rule.patterns }, rule);
   assert.strictEqual(errors.length, 2);
 });
+
+test("dates, years and times aren't treated as claims, but real figures still are", () => {
+  const raw = t => E.extractNumbers(t).map(n => n.raw);
+  assert.deepStrictEqual(raw("Offer ends 2 November 2026."), []);
+  assert.deepStrictEqual(raw("Open by Nov 2 at 10:30 or 9 am, 24/7."), []);
+  assert.deepStrictEqual(raw("Join 2,000 savers earning 12%."), ["2,000", "12%"]);
+});
