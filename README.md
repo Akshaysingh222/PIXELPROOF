@@ -17,14 +17,16 @@ The demo uses **Kitebird Money**, a made-up savings app with a ready-made brand 
 3. Apply the fixes (or dismiss one with a reason), then **Submit for review**.
 4. Switch to **Arjun · Brand manager** (top right) and approve, or request changes.
 5. Open **Insights**. The **guideline gap detector** shows that people keep pushing back on rule T-1 ("limited time"). Click **Suggest a clearer rule**, then **Approve**, then **See the next check change**. The phrase is no longer flagged, and the change is in **Brand kit → Guideline history**, where you can undo it.
-6. Open **Team** and sign in as **Arjun** in one browser and **Riya** in another (or a private window). Submit as Riya and watch it arrive in Arjun's queue.
+6. Still as Arjun, open **Brand kit → Import from a brand guideline** and click **Try the sample guideline** (or upload your own PDF, Word or text file). Untick anything you don't want, click **Add the ticked items**, then **See it work**.
+7. Open **Team** and click **Sign in as Arjun**. You get a fresh private copy of the demo workspace and a join code. In a private window, **Sign in as Riya** and join with the code. Submit as Riya and watch it arrive in Arjun's queue.
 
 ## Round 3: what's new
 | Improvement promised in Round 2 | Done when… | Status |
 | --- | --- | --- |
 | **Guideline gap detector** (flagship) | a rule pushed back on several times is flagged, and an approved rewrite changes the next check | ✅ T-1 is flagged from real dismissals and overrides; approving the rewrite stops the next check flagging "Limited time only" (end-to-end test) |
 | **Chrome extension** for LinkedIn, Gmail and X | it installs from the repository and checks a draft end to end on all three sites | ✅ Load unpacked from `extension/`; Check button, in-place highlights, in-place fixes, AI review, Send to review queue; side panel for any other page |
-| **Shared team workspace** | a creator and a reviewer on different devices see the same queue | ✅ Supabase accounts, roles (creator, reviewer, admin) and a shared database with live updates; permissions enforced by the database |
+| **Shared team workspace** | a creator and a reviewer on different devices see the same queue | ✅ Supabase accounts, roles (creator, reviewer, admin) and a shared database with live updates; permissions enforced by the database. Checked live on a laptop and a phone |
+| **Guideline import** (planned in Round 1, moved to future scope in Round 2, built in Round 3) | an uploaded guideline produces rules a manager approves | ✅ Upload a PDF, Word or text guideline; code and the AI propose rules, facts and glossary terms, each quoting a sentence code confirms is in the document; the manager ticks what to keep; the next check uses them; undo in the history |
 
 Plus reliability and usability work: see [What was tightened](#what-was-tightened-in-round-3).
 
@@ -53,6 +55,7 @@ Screenshots of the extension are from the test pages described under [Testing](#
 - **Human control:** fixes only on click; blockers must be fixed or dismissed with a reason before submitting; PixelProof never publishes.
 - **Review:** creator and brand-manager roles, comments, approve, request changes, revise, agree or disagree with dismissals, "OK to publish", version history with word-by-word changes, activity timeline.
 - **Brand kit editor:** voice, glossary, approved facts with sources and expiry dates, palette, rule on/off and severity, JSON import/export, guideline history with undo.
+- **Guideline import:** upload a brand guideline (PDF, Word, text) or try the sample one ([docs/sample-brand-guideline.pdf](docs/sample-brand-guideline.pdf)). Code finds "use X, not Y" terms, banned quoted phrases, "always/never" rules and facts; the AI adds what code can't see. Every proposal must quote a sentence that code finds in the document, patterns that would flag ordinary writing are dropped, and anything already in the kit is skipped. The manager approves; it's one new kit version that can be undone.
 - **Insights:** guideline gap detector, most common issues, issues by area, expired or expiring facts.
 
 **Round 3**
@@ -89,7 +92,7 @@ The AI review goes through the PixelProof server, so the Gemini key is never in 
 | Hosting | Vercel, deployed from this repository |
 | Storage | Browser `localStorage` in demo mode; Supabase in a team workspace |
 | Documents | pdf.js and mammoth.js, loaded from cdnjs only when a file is uploaded |
-| Tests | Node's built-in test runner (`npm test`, 30 tests), a database security test (SQL), and browser tests (see [Testing](#testing)) |
+| Tests | Node's built-in test runner (`npm test`, 34 tests), a database security test (SQL), and browser tests (see [Testing](#testing)) |
 
 See **[CODE_GUIDE.md](CODE_GUIDE.md)** for a plain-English walkthrough of the code.
 
@@ -134,16 +137,16 @@ npm test                    # run the tests
 3. **Authentication → Sign In / Providers → Email:** turn off **Confirm email** (otherwise new users must click an email link before signing in).
 4. **Project Settings → API:** copy the **Project URL** and the **anon / publishable** key. Never use the `service_role` / secret key in this app.
 5. In Vercel, add `SUPABASE_URL` and `SUPABASE_ANON_KEY`, then redeploy.
-6. Demo accounts (optional): in **Authentication → Users → Add user**, create `arjun.manager@pixelproof-demo.com` and `riya.creator@pixelproof-demo.com` with password `PixelProof-Demo-2026` and **Auto Confirm** ticked. Sign in as Arjun on the Team tab, create a workspace named "Kitebird Money" with the sample content, then sign in as Riya and join with the code.
+6. Demo accounts (optional): in **Authentication → Users → Add user**, create `arjun.manager@pixelproof-demo.com` and `riya.creator@pixelproof-demo.com` with password `PixelProof-Demo-2026` and **Auto Confirm** ticked. Each click on **Sign in as Arjun** creates a fresh private demo workspace with the sample content, so visitors never share (or break) one demo; Riya joins it with its code.
 
 The anon key is public by design. Row level security in `schema.sql` decides who can read or change what: members only see their own workspace, creators can't approve or edit the brand kit, only admins change roles, and the last admin can't be removed.
 
 ## Testing
 | What | How | Result |
 | --- | --- | --- |
-| Engine, API and extension | `npm test`: rules, fact matching, dates not treated as claims, checking the AI's answer, gap detector (ranking, suggestion, validation, applying, undo, only counting signals after a change), API validation (bad JSON, missing kit, empty text, CORS), extension manifest and engine copy | 30 / 30 pass |
+| Engine, API and extension | `npm test`: rules, fact matching, dates not treated as claims, checking the AI's answer, gap detector (ranking, suggestion, validation, applying, undo, only counting signals after a change), API validation (bad JSON, missing kit, empty text, CORS), guideline import (finding rules, facts and terms; throwing out made-up quotes and unsafe patterns; applying and undoing), API guide mode, extension manifest and engine copy | 34 / 34 pass |
 | Database security | `supabase/test/rls_test.sql` on Postgres 16 with a small stand-in for Supabase auth: creator can't approve (also through an upsert), can't edit the kit, can't change roles; last admin protected; outsiders and signed-out visitors see nothing; wrong join codes rejected | all pass |
-| Web app, end to end | Playwright in Chrome against the real app and API with a stand-in for Gemini, and a stand-in for the Supabase API that runs every query on the real `schema.sql`: the full creator → reviewer → revise → approve journey; the gap detector changing the next check, history and undo; empty input, double clicks, refresh mid-check, extension hand-off, bad imports, mobile width; two browsers sharing one team workspace (create, join by code, live queue updates, approval seen on the other device, database refusing a forced approval, role change, refresh, a draft from the extension, sign out) | 47 / 47 pass |
+| Web app, end to end | Playwright in Chrome against the real app and API with a stand-in for Gemini, and a stand-in for the Supabase API that runs every query on the real `schema.sql`: the full creator → reviewer → revise → approve journey; the gap detector changing the next check, history and undo; guideline import from the sample and from an uploaded file (a made-up AI quote thrown out, the next check using the imported rules, undo); empty input, double clicks, refresh mid-check, extension hand-off, bad imports, mobile width; two browsers sharing one team workspace (each demo visitor getting their own workspace, sign up and create by hand, join by code, live queue updates, approval seen on the other device, database refusing a forced approval, role change, refresh, a draft from the extension, sign out) | 56 / 56 pass |
 | Extension | Playwright loads the real extension into Chrome and uses pages with the same compose-box markup as LinkedIn (Quill editor), Gmail (message body) and X (Draft.js): button appears, issues listed and underlined, AI review, fix applied in the box (also while the AI is still running), ignore, Send to review queue; harder layouts (box already focused when the page loads, a post window opened as a modal dialog like LinkedIn's, editor inside shadow DOM, editor inside a frame); no button while the box is empty; side panel with selected text; options | 45 / 45 pass |
 | Real sites | By hand on 19 Nov 2026 with my own accounts: extension loaded unpacked from the repository; a draft checked on linkedin.com, mail.google.com and x.com, AI review finished, Send to review queue opened the draft in PixelProof. Team workspace checked live with a laptop (Arjun) and a phone (Riya) | works |
 
@@ -165,17 +168,15 @@ Limits of the tests: the AI is replaced by a stand-in that gives fixed answers, 
 - **The extension sends drafts to the review queue through the web app** (it opens PixelProof with the draft) instead of writing to the database itself, so there is one place where content is submitted and one set of permissions.
 
 ## Roadmap
-**Next**
-- Sign in to the team workspace from the extension, so its brand kit and submissions are shared without exporting a file.
-- Import rules from a brand guideline PDF (moved from Round 2).
-- Scheduled reminders when approved facts are about to expire.
+Each phase is aimed at a specific group of people and has one number that says whether it worked.
 
-**Later**
-- More places to check: Google Docs, Notion and Slack drafts; Instagram captions in Meta Business Suite.
-- Per-channel rules (for example, hashtags allowed on X but not in email).
-- Fact library search by meaning (vector search) once a brand has hundreds of facts.
-- Gap detector across brands: anonymous patterns of which rule wording works best.
-- Audit export for compliance teams (who approved what, against which brand kit version).
+| Phase | For | What gets built | How we'll know it worked |
+| --- | --- | --- | --- |
+| **Month 1: pilot** | One real brand team (5–10 people: 1 brand manager, creators, 1 compliance reviewer) | Extension signs in to the team workspace and uses its brand kit; Chrome Web Store listing (no Developer mode); fact expiry reminders by email; guideline import for Word headings and tables; fixes from the first user tests | At least 70% of the team's posts are checked before publishing; time from submit to approval drops by a third |
+| **Month 3: daily use** | Growing companies in finance, health and education, where a wrong claim is costly | Per-channel rules (e.g. hashtags fine on X, not in email); Google Docs and Notion checks; approvals in Slack; audit export (who approved what, against which brand kit version); several brands in one account for agencies | Off-brand or unsupported claims found after publishing fall below 1 in 50 posts; gap detector rewrites approved at least once a month per team |
+| **Month 6: scale** | Agencies and larger marketing teams | Fact search by meaning for big fact libraries; logo and layout checks in images; ready-made rule packs for regulated sectors; option to run the AI on the company's own model | 10 paying teams; under 5% of flags dismissed as wrong (the gap detector keeps rules clear) |
+
+**Risks we'll watch:** sites changing their compose boxes (the side panel is the fallback, and each site gets a test page); AI cost per check (rules and facts run first, free, and the AI reads only what's needed); trust (every AI answer stays verified by code, and every change can be undone).
 
 ## Responsible design
 - PixelProof can be wrong. It never edits or publishes without a person's click, in the web app or the extension.
@@ -183,7 +184,7 @@ Limits of the tests: the AI is replaced by a stand-in that gives fixed answers, 
 - Emails, phone numbers, PAN and ID-style numbers are masked before text is sent to the AI.
 - The deployment uses a paid Gemini API key; paid-tier inputs aren't used to improve Google's products.
 - Demo mode keeps data in the user's browser. Team workspaces keep the brand kit and queue in Supabase, protected by row level security.
-- The demo team accounts are shared with everyone trying the app; don't put real content in them.
+- The demo team accounts can be used by anyone trying the app, so each visitor gets their own demo workspace; still, don't put real content in them.
 
 ## How it was built
 I'm a one-person team. I decided the idea, the scope and how each part should behave, set up GitHub, Vercel, Supabase and the Gemini API, and tested the app, reporting each problem I found. An AI assistant (Claude) wrote most of the code, the tests and these docs under my direction. Problems found and fixed in Round 3:

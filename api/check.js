@@ -7,12 +7,13 @@
 // 2. We mask personal details again, build a prompt, and ask Gemini for a JSON answer.
 // 3. If the main model is slow or busy we try a faster backup model.
 // 4. We send the answer back. The browser verifies it (engine.js verifyAI) before showing it.
-// It also has a second job (mode "rule"): drafting clearer wording for a brand rule people keep pushing back on.
+// It also has a second job (mode "rule"): drafting clearer wording for a brand rule people keep pushing back on,
+// and a third (mode "guide"): proposing rules, facts and glossary terms from a brand guideline document.
 // Gemini 3.5 Flash-Lite is fast and good at structured JSON; 3.6 Flash is the backup. Both can be changed in Vercel.
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
 const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || "gemini-3.6-flash";
 const MAX_CHARS = 6000;
-const VERSION = "2026-11-20.1";
+const VERSION = "2026-11-20.2";
 const hits = new Map(); // tiny per-instance rate limit to protect the API quota and cost
 
 function maskPII(text) {
@@ -109,6 +110,53 @@ const RULE_SCHEMA = {
   required: ["detail", "allowed", "notAllowed", "severity", "removePatterns", "rationale"]
 };
 
+// Third job (mode "guide"): read a brand guideline document and propose rules, facts and glossary terms.
+// Every proposal must quote the sentence it comes from; the browser checks each quote is really in the document.
+const GUIDE_MAX = 20000;
+function buildGuidePrompt({ kit, text, fileName }) {
+  const rules = (kit.rules || []).map(r => `- ${r.id} ${r.title}`).join("\n") || "- none";
+  const glossary = (kit.glossary || []).map(g => `- use "${g.use}", avoid ${(g.avoid || []).map(a => `"${a}"`).join(", ")}`).join("\n") || "- none";
+  return `You help a brand manager at ${kit.brand || "a company"} turn their brand guideline document into checkable rules.
+Read the document "${fileName || "guideline"}" below and propose:
+- rules: things content must or must not do. For each: a short title, the rule in one or two plain sentences (detail),
+  category (one of Claims, Tone, Messaging, Accessibility, Writing, Visual), severity (blocker for legal or factual risk, warning for brand voice, suggestion for style),
+  patterns: case-insensitive JavaScript regular expressions for exact words or phrases the document says not to use (leave empty if the rule needs judgment),
+  fix: a replacement phrase if the document gives one, and quote: the exact sentence from the document, copied word for word.
+- facts: statements the brand says are approved and true (figures, product facts). Give text, source if the document names one, and quote.
+- glossary: preferred terms. Give use (the preferred word), avoid (words not to use), a short note, and quote.
+Only propose what the document actually says. Copy every quote exactly. Skip anything the brand kit already has.
+
+RULES ALREADY IN THE BRAND KIT:
+${rules}
+GLOSSARY ALREADY IN THE BRAND KIT:
+${glossary}
+
+DOCUMENT (between triple quotes):
+"""
+${text}
+"""`;
+}
+const GUIDE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    rules: { type: "ARRAY", items: { type: "OBJECT", properties: { title: { type: "STRING" }, detail: { type: "STRING" }, category: { type: "STRING" }, severity: { type: "STRING" },
+      patterns: { type: "ARRAY", items: { type: "STRING" } }, fix: { type: "STRING" }, quote: { type: "STRING" } }, required: ["title", "detail", "quote"] } },
+    facts: { type: "ARRAY", items: { type: "OBJECT", properties: { text: { type: "STRING" }, source: { type: "STRING" }, quote: { type: "STRING" } }, required: ["text", "quote"] } },
+    glossary: { type: "ARRAY", items: { type: "OBJECT", properties: { use: { type: "STRING" }, avoid: { type: "ARRAY", items: { type: "STRING" } }, note: { type: "STRING" }, quote: { type: "STRING" } }, required: ["use", "avoid", "quote"] } }
+  },
+  required: ["rules", "facts", "glossary"]
+};
+function cleanGuide(ai) {
+  const arr = (a, n) => (Array.isArray(a) ? a.slice(0, n) : []);
+  const str = (v, n) => String(v == null ? "" : v).slice(0, n);
+  return {
+    rules: arr(ai && ai.rules, 30).map(r => ({ title: str(r.title, 100), detail: str(r.detail, 400), category: str(r.category, 20), severity: str(r.severity, 12),
+      patterns: arr(r.patterns, 8).map(p => str(p, 100)), fix: str(r.fix, 80), quote: str(r.quote, 500) })),
+    facts: arr(ai && ai.facts, 30).map(f => ({ text: str(f.text, 300), source: str(f.source, 120), quote: str(f.quote, 500) })),
+    glossary: arr(ai && ai.glossary, 30).map(g => ({ use: str(g.use, 40), avoid: arr(g.avoid, 8).map(a => str(a, 40)), note: str(g.note, 200), quote: str(g.quote, 500) }))
+  };
+}
+
 // Structured output: Gemini must answer in exactly this shape, so the JSON is valid.
 const STR = { type: "STRING" };
 const SCHEMA = {
@@ -158,16 +206,17 @@ async function callGemini(prompt, key, strict, model, ms, schema) {
   } finally { clearTimeout(timer); }
 }
 
-async function askGemini(prompt, key, schema) {
+async function askGemini(prompt, key, schema, ms) {
+  ms = ms || 20000;
   // 1) main model, strict JSON  2) main model, relaxed (if the strict settings were refused)
   // 3) backup model if the main one is slow, busy, retired or out of quota
-  try { return { ai: await callGemini(prompt, key, true, MODEL, 20000, schema), model: MODEL }; }
+  try { return { ai: await callGemini(prompt, key, true, MODEL, ms, schema), model: MODEL }; }
   catch (e) {
     const slowOrBusy = e.name === "AbortError" || [404, 429, 500, 503].includes(e.status);
     if (!slowOrBusy) {
       try { return { ai: await callGemini(prompt, key, false, MODEL, 15000, schema), model: MODEL }; } catch (e2) { /* fall through to backup */ }
     }
-    if (FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) return { ai: await callGemini(prompt, key, true, FALLBACK_MODEL, 20000, schema), model: FALLBACK_MODEL };
+    if (FALLBACK_MODEL && FALLBACK_MODEL !== MODEL) return { ai: await callGemini(prompt, key, true, FALLBACK_MODEL, ms, schema), model: FALLBACK_MODEL };
     throw e;
   }
 }
@@ -225,6 +274,11 @@ module.exports = async function handler(req, res) {
     }
     const text = typeof body.text === "string" ? body.text.trim() : "";
     if (!text) return res.status(400).json({ ok: false, error: "There's no text to check." });
+    if (body.mode === "guide") {
+      const masked = maskPII(text.slice(0, GUIDE_MAX));
+      const out = await askGemini(buildGuidePrompt({ kit, text: masked.text, fileName: String(body.fileName || "").slice(0, 120) }), key, GUIDE_SCHEMA, 27000);
+      return res.status(200).json({ ok: true, model: out.model, truncated: text.length > GUIDE_MAX, proposal: cleanGuide(out.ai) });
+    }
     const masked = maskPII(text.slice(0, MAX_CHARS));
     const prompt = buildPrompt({ text: masked.text, contentType: body.contentType, kit, facts: (body.facts || []).slice(0, 8), alreadyFound: body.alreadyFound });
     const out = await askGemini(prompt, key);

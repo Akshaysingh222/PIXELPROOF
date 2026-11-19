@@ -62,3 +62,14 @@ test("a cut-off or broken AI reply becomes a friendly error, not a crash", async
   const r = await call(h, { method: "POST", body: { kit: DEMO_KIT, text: "Hello savers." } });
   assert.strictEqual(r.body.ok, false); assert.match(r.body.error, /Rule and fact checks still ran/);
 });
+
+test("guide mode returns cleaned proposals from a guideline document", async () => {
+  let prompt = "";
+  const h = fresh(async (url, opts) => { prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+    return answer({ rules: [{ title: "No hype", detail: "Never say best in class.", quote: "Never say best in class.", patterns: ["best in class"], extra: "x" }], facts: [], glossary: [] })(); });
+  const r = await call(h, { method: "POST", body: { mode: "guide", kit: DEMO_KIT, text: "Never say best in class. Email us at a@b.com", fileName: "guide.pdf" } });
+  assert.strictEqual(r.body.ok, true);
+  assert.deepStrictEqual(r.body.proposal.rules[0].patterns, ["best in class"]);
+  assert.strictEqual(r.body.proposal.rules[0].extra, undefined);
+  assert.ok(prompt.includes("[email]") && !prompt.includes("a@b.com"));
+});

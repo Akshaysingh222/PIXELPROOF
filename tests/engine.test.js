@@ -165,3 +165,46 @@ test("dates, years and times aren't treated as claims, but real figures still ar
   assert.deepStrictEqual(raw("Open by Nov 2 at 10:30 or 9 am, 24/7."), []);
   assert.deepStrictEqual(raw("Join 2,000 savers earning 12%."), ["2,000", "12%"]);
 });
+
+// ---------- guideline import ----------
+const K = require("../js/brandkit.js");
+test("guideline import: code finds rules, facts and glossary terms in the sample guideline", () => {
+  const g = K.SAMPLE_GUIDE;
+  const v = E.validateImport(E.extractGuideline(g.text), g.text, kit, TODAY);
+  assert.ok(v.rules.some(r => r.patterns.some(p => /wealth/.test(p))), "banned phrases become a rule");
+  assert.ok(v.facts.some(f => /withdraw/.test(f.text)) && v.facts.some(f => /₹10/.test(f.text)), "facts under the facts heading");
+  assert.ok(v.glossary.some(x => x.use === "low-cost" && x.avoid.includes("cheap")));
+  assert.deepStrictEqual(v.rejected, []);
+});
+
+test("guideline import: proposals whose quote isn't in the document, or with unsafe patterns, are thrown out", () => {
+  const doc = "Never say “best in class”. Use “Savings Pot”, not “jar”.";
+  const v = E.validateImport({
+    rules: [{ title: "No hype", detail: "Never say best in class.", quote: "Never say “best in class”.", patterns: ["best in class", "(", ".*", "e", "the"] },
+            { title: "Invented rule", detail: "Always use emojis in every post.", quote: "Always use emojis in every post.", patterns: [] }],
+    facts: [{ text: "Kitebird Money has 10 crore savers.", quote: "Kitebird Money has 10 crore savers." }],
+    glossary: [{ use: "Savings Pot", avoid: ["jar", "savings pocket"], quote: "Use “Savings Pot”, not “jar”." }]
+  }, doc, kit, TODAY);
+  assert.strictEqual(v.rules.length, 1);
+  assert.deepStrictEqual(v.rules[0].patterns, ["best in class"]);   // broken, empty-matching and too-broad patterns dropped
+  assert.strictEqual(v.facts.length, 0);                              // made-up fact: quote not in the document
+  assert.deepStrictEqual(v.glossary[0].avoid, ["jar"]);               // "savings pocket" is already in the demo glossary
+  assert.ok(v.rejected.some(r => r.why.includes("isn't in the document")));
+});
+
+test("guideline import: approved items change the next check, are recorded, and can be undone", () => {
+  const g = K.SAMPLE_GUIDE;
+  const v = E.validateImport(E.extractGuideline(g.text), g.text, kit, TODAY);
+  const before = E.runLocal(g.tryText, kit, TODAY).issues.map(i => i.excerpt.toLowerCase());
+  assert.ok(!before.includes("secret trick") && !before.includes("cheap"));
+  const k2 = E.applyImport(kit, v, "Arjun", "2026-11-20T10:00:00Z", g.fileName, "code");
+  const after = E.runLocal(g.tryText, k2, TODAY).issues.map(i => i.excerpt.toLowerCase());
+  assert.ok(after.includes("secret trick") && after.includes("cheap") && after.includes("wallet"));
+  assert.strictEqual(k2.version, (kit.version || 1) + 1);
+  const entry = k2.history[k2.history.length - 1];
+  assert.strictEqual(entry.kind, "import"); assert.match(entry.summary, /imported 4 rules, 2 facts, 2 glossary terms/);
+  assert.ok(k2.facts.some(f => f.id === "F-08" && /withdraw/.test(f.text)));   // next free ID
+  const k3 = E.revertImport(k2, entry, "Arjun", "2026-11-20T11:00:00Z");
+  assert.strictEqual(k3.rules.length, kit.rules.length); assert.strictEqual(k3.facts.length, kit.facts.length);
+  assert.ok(!E.runLocal(g.tryText, k3, TODAY).issues.some(i => i.excerpt.toLowerCase() === "secret trick"));
+});

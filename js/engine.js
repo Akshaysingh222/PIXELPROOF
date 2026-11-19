@@ -623,7 +623,156 @@
     return k;
   }
 
-  const api = { plainPattern, analyseGaps, suggestRuleChange, validateRuleChange, applyRuleChange, revertRuleChange, runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
+
+  // ---------- Guideline import ----------
+  // Turns a brand guideline document into proposed rules, facts and glossary terms. Every proposal must quote
+  // a sentence that really is in the document (checked here, by code), and nothing is added until a brand manager approves.
+  const CATEGORIES = ["Claims", "Tone", "Messaging", "Accessibility", "Writing", "Glossary", "Visual"];
+  const BLAND = "The quick brown fox jumps over the lazy dog. We help people save money every week with a simple app. Read more about our team and our plans for next year.";
+  function normQuote(s) { return String(s || "").toLowerCase().replace(/[‘’‚′]/g, "'").replace(/[“”„″]/g, '"').replace(/[–—]/g, "-").replace(/\s+/g, " ").trim(); }
+  function quoteInDoc(doc, quote) { const q = normQuote(quote); return q.length >= 8 && normQuote(doc).includes(q); }
+  function safePattern(p) {
+    p = String(p || "").trim();
+    if (p.length < 3 || p.length > 80) return null;
+    let re; try { re = new RegExp(p, "gi"); } catch (e) { return null; }
+    if (re.test("")) return null;                           // matches nothing at all
+    re.lastIndex = 0; if (re.test(BLAND)) return null;       // so broad it flags ordinary writing
+    return p;
+  }
+  function phrasePattern(phrase) { return "\\b" + escapeRe(String(phrase).trim().toLowerCase()).replace(/\s+/g, "\\s+") + "\\b"; }
+  function cleanStr(s, max) { return String(s == null ? "" : s).replace(/\s+/g, " ").trim().slice(0, max); }
+
+  // Checks a proposal (from the AI or from code) against the document and the current brand kit.
+  function validateImport(proposal, doc, kit, today) {
+    proposal = proposal || {}; today = today || todayISO();
+    const out = { rules: [], facts: [], glossary: [], rejected: [] };
+    const reject = (kind, label, why) => out.rejected.push({ kind, label: cleanStr(label, 80), why });
+    const existingPatterns = new Set((kit.rules || []).flatMap(r => r.patterns || []).map(x => x.toLowerCase()));
+    const existingTitles = new Set((kit.rules || []).map(r => norm(r.title)));
+    const avoidSeen = new Set((kit.glossary || []).flatMap(g => g.avoid || []).map(a => a.toLowerCase()));
+    const factSeen = new Set((kit.facts || []).map(f => norm(f.text)));
+    for (const r of proposal.rules || []) {
+      const title = cleanStr(r.title, 80), detail = cleanStr(r.detail, 300);
+      if (title.length < 3 || detail.length < 10) { reject("rule", title || detail, "too short to be a rule"); continue; }
+      if (!quoteInDoc(doc, r.quote)) { reject("rule", title, "its quote isn't in the document"); continue; }
+      if (existingTitles.has(norm(title))) { reject("rule", title, "the brand kit already has this rule"); continue; }
+      const patterns = []; let dropped = 0;
+      for (const p of (r.patterns || []).slice(0, 8)) { const ok = safePattern(p); if (ok && !existingPatterns.has(ok.toLowerCase()) && !patterns.includes(ok)) patterns.push(ok); else dropped++; }
+      out.rules.push({ title, detail, category: CATEGORIES.includes(r.category) ? r.category : "Writing",
+        severity: SEV_ORDER.hasOwnProperty(r.severity) ? r.severity : "warning", patterns, fix: cleanStr(r.fix, 60),
+        quote: cleanStr(r.quote, 400), droppedPatterns: dropped, on: true });
+      existingTitles.add(norm(title));
+    }
+    for (const f of proposal.facts || []) {
+      const text = cleanStr(f.text, 300);
+      if (text.length < 10) { reject("fact", text, "too short"); continue; }
+      if (!quoteInDoc(doc, f.quote) && !quoteInDoc(doc, text)) { reject("fact", text, "its quote isn't in the document"); continue; }
+      if (factSeen.has(norm(text))) { reject("fact", text, "the fact library already has it"); continue; }
+      let expires = /^\d{4}-\d{2}-\d{2}$/.test(f.expires || "") && f.expires > today ? f.expires : null;
+      if (!expires) { const d = new Date(today); d.setFullYear(d.getFullYear() + 1); expires = d.toISOString().slice(0, 10); }
+      out.facts.push({ text, source: cleanStr(f.source, 120), quote: cleanStr(f.quote || text, 400), expires, on: true });
+      factSeen.add(norm(text));
+    }
+    for (const g of proposal.glossary || []) {
+      const use = cleanStr(g.use, 40);
+      const avoid = (g.avoid || []).map(a => cleanStr(a, 40)).filter(a => a.length >= 2 && a.toLowerCase() !== use.toLowerCase() && !avoidSeen.has(a.toLowerCase()));
+      if (use.length < 2 || !avoid.length) { reject("glossary", use, "nothing new to avoid"); continue; }
+      if (!quoteInDoc(doc, g.quote)) { reject("glossary", use, "its quote isn't in the document"); continue; }
+      avoid.forEach(a => avoidSeen.add(a.toLowerCase()));
+      out.glossary.push({ use, avoid, note: cleanStr(g.note, 200), quote: cleanStr(g.quote, 400), on: true });
+    }
+    return out;
+  }
+
+  // A first pass by code, so import works without AI: "Use X, not Y", banned quoted phrases,
+  // "Always/Never" sentences, and sentences with figures (proposed as facts).
+  function extractGuideline(doc) {
+    const text = String(doc || "").replace(/\r/g, "");
+    // keep track of the section each sentence is in, so everything under an "Approved facts" heading becomes a fact
+    const sentences = []; let section = "";
+    // PDFs break long sentences across lines: join a long line that doesn't end a sentence with the next one
+    const lines = [];
+    for (const l of text.split(/\n+/).map(x => x.trim()).filter(Boolean)) {
+      const prev = lines[lines.length - 1];
+      if (prev && prev.length > 60 && !/[.!?:]$/.test(prev)) lines[lines.length - 1] = prev + " " + l; else lines.push(l);
+    }
+    for (const line of lines) {
+      if (line.length <= 60 && !/[.!?]$/.test(line)) { section = line; continue; }
+      line.split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(x => x.length >= 12 && x.length <= 400).forEach(x => sentences.push({ x, section }));
+    }
+    const Q = "[\"“‘']"; const QE = "[\"”’']";
+    const prop = { rules: [], facts: [], glossary: [] };
+    for (const { x: sent, section } of sentences) {
+      let m;
+      if (/\bfacts?\b/i.test(section) && sent.length <= 220) { prop.facts.push({ text: sent, source: "", quote: sent }); continue; }
+      const g1 = new RegExp("\\b(?:use|say|write|call (?:it|them|us))\\s+" + Q + "([^\"”’']{2,40})" + QE + ",?\\s*(?:not|never|instead of|rather than)\\s+(.{2,120}?)[.;]?$", "i").exec(sent);
+      const g2 = new RegExp("\\b(?:don't|do not|never)\\s+(?:say|use|write)\\s+" + Q + "([^\"”’']{2,40})" + QE + "[;,]?\\s*(?:say|use|write)\\s+" + Q + "([^\"”’']{2,40})" + QE, "i").exec(sent);
+      if (g1) {
+        const avoid = (g1[2].match(new RegExp(Q + "([^\"”’']{2,40})" + QE, "g")) || []).map(x => x.slice(1, -1));
+        if (avoid.length) { prop.glossary.push({ use: g1[1], avoid, note: "", quote: sent }); continue; }
+      }
+      if (g2) { prop.glossary.push({ use: g2[2], avoid: [g2[1]], note: "", quote: sent }); continue; }
+      if (/\b(?:never|don't|do not|avoid|no)\b/i.test(sent) && (m = sent.match(new RegExp(Q + "([^\"”’']{3,40})" + QE, "g")))) {
+        const phrases = m.map(x => x.slice(1, -1)).filter(x => !/^\W*$/.test(x));
+        if (phrases.length) {
+          prop.rules.push({ title: "Avoid " + phrases.slice(0, 2).map(x => "“" + x + "”").join(" and "), detail: sent, category: "Tone", severity: "warning",
+            patterns: phrases.map(phrasePattern), fix: "", quote: sent });
+          continue;
+        }
+      }
+      if (/^(?:always|never|don't|do not|avoid|every|all)\b/i.test(sent) && sent.length <= 220) {
+        prop.rules.push({ title: cleanStr(sent.replace(/[.!]$/, ""), 70), detail: sent, category: "Writing", severity: "suggestion", patterns: [], fix: "", quote: sent });
+        continue;
+      }
+      if (/(?:\d+(?:\.\d+)?\s?%|₹\s?\d|\b\d[\d,]*\s?(?:lakh|crore|minutes?|days?)\b)/i.test(sent) && sent.length <= 220) {
+        prop.facts.push({ text: sent, source: "", quote: sent });
+      }
+    }
+    return prop;
+  }
+
+  // Adds the approved parts of an import to the brand kit, with new IDs, a new kit version and a history entry.
+  function applyImport(kit, accepted, by, at, fileName, source) {
+    const k = JSON.parse(JSON.stringify(kit));
+    k.rules = k.rules || []; k.facts = k.facts || []; k.glossary = k.glossary || [];
+    const next = (prefix, list, pad) => { const n = list.filter(x => String(x.id).startsWith(prefix)).reduce((mx, x) => Math.max(mx, parseInt(String(x.id).slice(prefix.length), 10) || 0), 0) + 1; return prefix + (pad ? String(n).padStart(pad, "0") : n); };
+    const added = { rules: [], facts: [], glossary: [] };
+    for (const r of accepted.rules || []) {
+      const id = next("I-", k.rules);
+      k.rules.push({ id, category: r.category, severity: r.severity, title: r.title, detail: r.detail, patterns: r.patterns || [], fix: r.fix || undefined, enabled: true, importedFrom: fileName, quote: r.quote });
+      added.rules.push(id);
+    }
+    for (const f of accepted.facts || []) {
+      const id = next("F-", k.facts, 2);
+      k.facts.push({ id, text: f.text, source: f.source || ("Brand guideline: " + fileName), owner: "Brand team", expires: f.expires, quote: f.quote });
+      added.facts.push(id);
+    }
+    for (const g of accepted.glossary || []) {
+      const id = next("G-", k.glossary);
+      k.glossary.push({ id, use: g.use, avoid: g.avoid, note: g.note || "From " + fileName });
+      added.glossary.push(id);
+    }
+    const n = added.rules.length + added.facts.length + added.glossary.length;
+    k.version = (k.version || 1) + 1;
+    const parts = [];
+    if (added.rules.length) parts.push(added.rules.length + " rule" + (added.rules.length === 1 ? "" : "s"));
+    if (added.facts.length) parts.push(added.facts.length + " fact" + (added.facts.length === 1 ? "" : "s"));
+    if (added.glossary.length) parts.push(added.glossary.length + " glossary term" + (added.glossary.length === 1 ? "" : "s"));
+    k.history = (k.history || []).concat([{ version: k.version, at, by, kind: "import", ruleId: "Import", title: fileName,
+      summary: n ? "imported " + parts.join(", ") + " from " + fileName : "nothing imported", added, source: source || "code" }]);
+    return k;
+  }
+  function revertImport(kit, entry, by, at) {
+    const k = JSON.parse(JSON.stringify(kit)); const a = entry.added || {};
+    k.rules = (k.rules || []).filter(r => !(a.rules || []).includes(r.id));
+    k.facts = (k.facts || []).filter(f => !(a.facts || []).includes(f.id));
+    k.glossary = (k.glossary || []).filter(g => !(a.glossary || []).includes(g.id));
+    k.version = (k.version || 1) + 1;
+    k.history = (k.history || []).concat([{ version: k.version, at, by, kind: "import-undo", ruleId: "Import", title: entry.title, summary: "undid the import in version " + entry.version, source: "person" }]);
+    return k;
+  }
+
+  const api = { validateImport, extractGuideline, applyImport, revertImport, quoteInDoc, safePattern, plainPattern, analyseGaps, suggestRuleChange, validateRuleChange, applyRuleChange, revertRuleChange, runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
     sortIssues, dedupe, isExpired, contrast, hexToRgb, camelHashtag, norm, todayISO, SEV_ORDER };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PP = api;

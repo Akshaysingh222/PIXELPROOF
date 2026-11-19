@@ -120,7 +120,31 @@
       text: "Limited time only: set a festive savings goal with a Savings Pot from Kitebird Money. Offer ends 2 November. #SaveSmart" }
   ];
 
-  const api = { DEMO_KIT, SAMPLES };
+  // A short brand guideline document, so the "import from a guideline" feature can be tried without a file.
+  // docs/sample-brand-guideline.pdf is the same text as a PDF.
+  const SAMPLE_GUIDE = {
+    fileName: "Kitebird Money brand guideline (sample).pdf",
+    text: [
+      "Kitebird Money brand guideline, version 3 (November 2026)",
+      "1. Who we are",
+      "Kitebird Money helps people in India save in small, regular steps. We are a savings app, not a bank: our partner bank holds the money.",
+      "2. How we sound",
+      "We sound like a calm friend who is good with money. Always explain one idea per sentence.",
+      "Never use the phrases \u201cwealth hack\u201d or \u201csecret trick\u201d. Saving is a habit, not a trick.",
+      "Do not call Kitebird Money \u201ca bank\u201d or \u201cyour bank\u201d in any content.",
+      "3. Words we use",
+      "Say \u201cSavings Pot\u201d, not \u201cwallet\u201d or \u201cvault\u201d.",
+      "Use \u201clow-cost\u201d, not \u201ccheap\u201d.",
+      "4. Approved facts",
+      "Savers can withdraw from a Savings Pot at any time with no penalty.",
+      "The smallest amount you can put in a Savings Pot is \u20b910.",
+      "5. Accessibility",
+      "Every video we post must have captions."
+    ].join("\n"),
+    tryText: "Our secret trick? Kitebird Money is the cheap wallet your bank doesn't want you to know about."
+  };
+
+  const api = { DEMO_KIT, SAMPLES, SAMPLE_GUIDE };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PP_KIT = api;
 })(typeof window !== "undefined" ? window : globalThis);
