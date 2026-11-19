@@ -98,7 +98,7 @@ I'm a one-person team. I decided the idea, the scope and how each part should be
 **Flagship: Guideline gap detector.** Turn dismissals, overrides and reviewer disagreements into a ranked list of rules that seem unclear. For each one, the AI drafts clearer wording with an allowed and a not-allowed example, and the brand manager approves it. Approved changes update the brand kit, with a version history.
 
 **Also:**
-- **Chrome extension for LinkedIn:** check a post inside LinkedIn's compose box, reusing the same engine and review queue.
+- **Chrome extension for LinkedIn, Gmail and X:** check a draft inside the compose box on all three sites, with issues highlighted in place, reusing the same engine and review queue. A side panel works with any selected text as a fallback if a site changes its page.
 - **Shared team workspace:** real accounts and a shared database, so a creator and a reviewer on different devices see the same queue.
 
 **Moved to future scope:** importing rules from a brand guideline PDF.

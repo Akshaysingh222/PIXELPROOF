@@ -95,3 +95,12 @@ test("disabled rules don't fire", () => {
   const k2 = JSON.parse(JSON.stringify(kit)); k2.rules.find(r => r.id === "T-1").enabled = false;
   assert.ok(!E.runLocal("Sign up now.", k2, TODAY).issues.some(i => i.ruleId === "T-1"));
 });
+
+test("AI can't raise rules that code checks exactly, or suggest a fix that changes nothing", () => {
+  const text = "Small steps add up. #SaveSmart";
+  const v = E.verifyAI({ issues: [
+    { ruleId: "A-6", excerpt: "#SaveSmart", explanation: "capitalise", fix: "#SaveSmart" },
+    { ruleId: "T-1", excerpt: "Small steps", explanation: "x", fix: "small steps" }
+  ] }, text, kit, TODAY, []);
+  assert.strictEqual(v.issues.length, 0); assert.strictEqual(v.dropped.length, 2);
+});

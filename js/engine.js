@@ -21,6 +21,9 @@
   };
   const CAT_LABEL = { Claims: "Claims policy", Tone: "Voice guide", Messaging: "Messaging guide", Accessibility: "Accessibility guide", Visual: "Visual identity", Glossary: "Glossary" };
 
+  // Small helpers.
+  // norm() lower-cases text and tidies quotes/spaces so we can compare text fairly.
+  // isExpired() is true when a fact's "valid until" date has passed.
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
   function norm(s) { return String(s || "").toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim(); }
   function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -29,6 +32,9 @@
   function ruleOn(kit, id) { const r = ruleById(kit, id); return r && r.enabled !== false ? r : null; }
   function refFor(rule) { return rule ? (CAT_LABEL[rule.category] || rule.category) + " · " + rule.id : ""; }
 
+  // Turns a sentence into its important words, e.g. "Join 5 lakh happy customers" -> [join, happy, saver].
+  // Small words like "the" are dropped, and synonyms are merged (customers/users/savers -> saver)
+  // so we can tell which approved fact a sentence is talking about.
   function topicWords(s) {
     return norm(s).replace(/[^a-z0-9%\s]/g, " ").split(" ")
       .filter(w => w && !STOP.has(w) && !/^\d/.test(w) && w.length > 2)
@@ -36,6 +42,7 @@
   }
 
   // ---------- numbers ----------
+  // Finds numbers in text, with their unit: "12%", "5 lakh", "under 3 minutes", "₹5,200".
   const NUM_RE = /(?:₹\s?|rs\.?\s?)?(\d[\d,]*(?:\.\d+)?)\s?(%|percent|lakh|lakhs|crore|crores|k\b|million|minutes?|mins?|years?|months?|days?|x\b)?/gi;
   function unitOf(u) {
     u = (u || "").toLowerCase();
@@ -48,6 +55,8 @@
     if (u.startsWith("day")) return "day";
     return u;
   }
+  // Returns every number in a piece of text as { raw, value, unit }.
+  // "#1" is skipped here because it's a ranking, which rule C-2 handles.
   function extractNumbers(s) {
     const out = []; let m; NUM_RE.lastIndex = 0;
     while ((m = NUM_RE.exec(s))) {
@@ -59,9 +68,11 @@
     }
     return out;
   }
+  // Two numbers match if the value is the same and the unit is the same (or one has no unit).
   function sameNumber(a, b) { return Math.abs(a.value - b.value) < 1e-9 && (a.unit === b.unit || !a.unit || !b.unit); }
 
   // ---------- sentences ----------
+  // Splits text into sentences and remembers where each one starts.
   function sentences(text) {
     // split on . ! ? only when followed by whitespace/end (so "7.25%" stays whole), and on new lines
     const out = []; const re = /[^\n]*?(?:[.!?]+(?=\s|$)|\n|$)/g; let m;
@@ -75,11 +86,17 @@
 
   // ---------- issue helper ----------
   let seq = 0;
+  // Every problem we find is an "issue" object: which rule, how serious, the exact words,
+  // why it's a problem, where the rule comes from, and the suggested fixes.
   function issue(o) {
     return Object.assign({ key: "i" + (++seq), source: "Rule", fixes: [], status: "open" }, o);
   }
 
   // ---------- Layer 1: rules ----------
+  // LAYER 1: RULE CHECKS
+  // Goes through each rule in the brand kit and looks for its patterns in the text,
+  // for example "guaranteed" (C-1) or "sign up now" (T-1). Every match becomes an issue.
+  // These checks are exact: the same text always gives the same result.
   function ruleChecks(text, kit) {
     const out = [];
     for (const r of kit.rules || []) {
@@ -98,7 +115,7 @@
         }
       }
     }
-    // glossary
+    // Glossary: words the brand wants to avoid, e.g. "customers" -> "savers".
     for (const g of kit.glossary || []) {
       for (const bad of g.avoid || []) {
         const caseSensitive = /[A-Z]/.test(bad);
@@ -166,29 +183,40 @@
   }
 
   const HASH_WORDS = ["save", "smart", "savings", "pot", "money", "kitebird", "small", "steps", "diwali", "every", "day", "safe", "simple", "habit", "habits", "goal", "goals", "week", "start", "today", "india", "finance", "fintech", "budget", "spend", "less", "more"];
+  // Tries to split a hashtag like "savesmart" into known words so we can suggest "#SaveSmart".
   function camelHashtag(tag) {
-    // greedy split into known words; returns null if it can't split the whole tag
-    const memo = {};
-    function split(s) {
-      if (!s) return [];
-      if (s in memo) return memo[s];
-      for (let i = s.length; i > 0; i--) {
-        const w = s.slice(0, i);
-        if (HASH_WORDS.includes(w) || /^\d+$/.test(w)) { const rest = split(s.slice(i)); if (rest) return (memo[s] = [w].concat(rest)); }
+    let rest = tag.toLowerCase();
+    const parts = [];
+    while (rest.length > 0) {
+      // take the longest known word at the start of what's left
+      let found = "";
+      for (const w of HASH_WORDS) {
+        if (rest.startsWith(w) && w.length > found.length) found = w;
       }
-      return (memo[s] = null);
+      if (!found) return null; // can't split it, so don't suggest anything
+      parts.push(found[0].toUpperCase() + found.slice(1));
+      rest = rest.slice(found.length);
     }
-    const parts = split(tag.toLowerCase());
-    return parts && parts.length > 1 ? parts.map(p => p[0].toUpperCase() + p.slice(1)).join("") : null;
+    return parts.length > 1 ? parts.join("") : null;
   }
 
+
   // ---------- Layer 2: claims against approved facts ----------
+  // How related is a sentence to an approved fact? Counts the important words they share.
   function factScore(claimSentence, fact) {
     const a = new Set(topicWords(claimSentence)); const b = new Set(topicWords(fact.text));
     let n = 0; for (const w of a) if (b.has(w)) n++;
     return n;
   }
 
+  // LAYER 2: FACT CHECKS
+  // For every number in every sentence:
+  //   1. find the approved facts that talk about the same thing
+  //   2. same number in a valid fact      -> verified (shown in green)
+  //   3. same number but the fact expired -> blocker, suggest the current fact
+  //   4. same topic but different number  -> blocker, suggest the approved number
+  //   5. nothing matches                  -> blocker, no source
+  // Ranking words (#1, best, fastest...) need a fact that says so, otherwise they're blockers too.
   function claimChecks(text, kit, today) {
     const issues = []; const verified = [];
     const facts = kit.facts || [];
@@ -245,6 +273,12 @@
   }
 
   // ---------- verify the AI's answer (Layer 3 guard) ----------
+  // LAYER 3 GUARD: CHECK THE AI'S ANSWER BEFORE SHOWING IT
+  // The AI can make mistakes, so we only keep what we can verify in code:
+  // - the rule it mentions must exist (and not be one of the exact rules that code already checks)
+  // - the words it quotes must really be in the text
+  // - a "supported" claim must quote words that really appear in a real, unexpired fact
+  // Anything that fails is thrown away (counted in `dropped`) or treated as unsupported.
   function verifyAI(ai, text, kit, today, existing) {
     const out = []; const verified = []; const dropped = [];
     const ntext = norm(text);
@@ -280,12 +314,14 @@
   }
 
   // ---------- context sent to the AI (keyword retrieval) ----------
+  // Picks the approved facts most related to the text, to send to the AI along with the content.
   function retrieveFacts(text, kit, k, today) {
     return (kit.facts || []).filter(f => !isExpired(f, today))
       .map(f => ({ f, s: factScore(text, f) })).sort((a, b) => b.s - a.s).slice(0, k || 6).map(x => x.f);
   }
 
   // ---------- run everything local ----------
+  // Runs layer 1 and layer 2 together. This part never needs the internet.
   function runLocal(text, kit, today) {
     const rules = ruleChecks(text, kit);
     const claims = claimChecks(text, kit, today);
@@ -303,10 +339,12 @@
   }
 
   // ---------- fixes ----------
+  // After a fix is applied: remove double spaces, spaces before punctuation, and fix capital letters.
   function tidy(t) {
     return t.replace(/[ \t]{2,}/g, " ").replace(/ +([.,!?;:])/g, "$1").replace(/\( +/g, "(").replace(/ +\)/g, ")")
       .replace(/(^|[.!?]\s+)([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/^\s+/, "");
   }
+  // Replaces the flagged words with the chosen fix. Only happens when the user clicks the fix button.
   function applyFix(text, iss, replacement) {
     if (!iss.excerpt) return text;
     let at = -1;
@@ -318,6 +356,7 @@
   }
 
   // ---------- privacy ----------
+  // PRIVACY: hide emails, phone numbers, PAN and ID numbers before any text is sent to the AI.
   function maskPII(text) {
     let n = 0;
     const t = String(text)
@@ -329,6 +368,9 @@
   }
 
   // ---------- visuals ----------
+  // COLOUR MATHS
+  // contrast() uses the WCAG formula (4.5:1 is the minimum for normal text).
+  // deltaE() measures how different two colours look to the human eye (bigger = more different).
   function hexToRgb(h) { h = h.replace("#", ""); if (h.length === 3) h = h.split("").map(c => c + c).join(""); const n = parseInt(h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
   function rgbToHex(c) { return "#" + c.map(v => Math.round(v).toString(16).padStart(2, "0")).join("").toUpperCase(); }
   function lin(v) { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }
@@ -344,6 +386,11 @@
   function deltaE(a, b) { const A = toLab(a), B = toLab(b); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]); }
 
   // pixels: flat RGBA array. Returns dominant colours and issues.
+  // IMAGE CHECKS
+  // 1. Count the colours in the image and keep the main ones (4% of the image or more).
+  // 2. Compare each main colour with the brand palette. Far from every brand colour = off-palette.
+  // 3. Check the contrast between the two main colours.
+  // 4. Make sure the image has alt text.
   function analyseImage(pixels, kit, altText) {
     const buckets = new Map(); let total = 0;
     for (let i = 0; i < pixels.length; i += 4) {
@@ -388,18 +435,36 @@
   }
 
   // ---------- word diff for review ----------
-  function diffWords(a, b) {
-    const A = String(a).split(/(\s+)/), B = String(b).split(/(\s+)/);
-    const n = A.length, m = B.length;
-    if (n * m > 400000) return [{ t: "del", s: a }, { t: "add", s: b }];
-    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
-    for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = A[i] === B[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-    const out = []; let i = 0, j = 0;
-    const push = (t, s) => { if (out.length && out[out.length - 1].t === t) out[out.length - 1].s += s; else out.push({ t, s }); };
-    while (i < n && j < m) { if (A[i] === B[j]) { push("same", A[i]); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) { push("del", A[i]); i++; } else { push("add", B[j]); j++; } }
-    while (i < n) push("del", A[i++]); while (j < m) push("add", B[j++]);
+  // Shows what changed between two versions, word by word (used in the review screen).
+  function diffWords(oldText, newText) {
+    const A = String(oldText).split(/(\s+)/); // words and the spaces between them
+    const B = String(newText).split(/(\s+)/);
+    if (A.length * B.length > 400000) return [{ t: "del", s: oldText }, { t: "add", s: newText }]; // too long to compare
+    // same[i][j] = how many words in a row the two versions share, starting from word i and word j
+    const same = [];
+    for (let i = 0; i <= A.length; i++) same.push(new Array(B.length + 1).fill(0));
+    for (let i = A.length - 1; i >= 0; i--) {
+      for (let j = B.length - 1; j >= 0; j--) {
+        same[i][j] = A[i] === B[j] ? same[i + 1][j + 1] + 1 : Math.max(same[i + 1][j], same[i][j + 1]);
+      }
+    }
+    // walk through both versions: unchanged words stay, others are marked removed or added
+    const out = [];
+    const push = (t, word) => {
+      const last = out[out.length - 1];
+      if (last && last.t === t) last.s += word; else out.push({ t, s: word });
+    };
+    let i = 0, j = 0;
+    while (i < A.length && j < B.length) {
+      if (A[i] === B[j]) { push("same", A[i]); i++; j++; }
+      else if (same[i + 1][j] >= same[i][j + 1]) { push("del", A[i]); i++; }
+      else { push("add", B[j]); j++; }
+    }
+    while (i < A.length) push("del", A[i++]);
+    while (j < B.length) push("add", B[j++]);
     return out;
   }
+
 
   const api = { runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
     sortIssues, dedupe, isExpired, contrast, hexToRgb, camelHashtag, norm, todayISO, SEV_ORDER };
