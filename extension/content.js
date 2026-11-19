@@ -90,7 +90,9 @@
     if (r.width < 40 || r.height < 10 || r.bottom < 0 || r.top > innerHeight) { btnHost.style.display = "none"; return; }
     btnHost.style.display = "block";
     btnHost.style.left = Math.max(4, Math.min(innerWidth - 110, r.right - 100)) + "px";
-    btnHost.style.top = Math.max(4, Math.min(innerHeight - 36, r.bottom - 34)) + "px";
+    // small boxes (like X's) grow with the text, so put the button just below them instead of over the words
+    const top = r.height < 120 ? r.bottom + 6 : r.bottom - 34;
+    btnHost.style.top = Math.max(4, Math.min(innerHeight - 36, top)) + "px";
   }
   function setBadge() {
     const n = state.result ? state.result.issues.filter(i => i.status === "open").length : 0;

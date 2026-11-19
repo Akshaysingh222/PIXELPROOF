@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "PixelProof: brand check where you write",
   "short_name": "PixelProof",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Checks LinkedIn, Gmail and X drafts against your brand kit before you post, using the same engine as the PixelProof web app.",
   "icons": {
     "16": "icons/icon16.png",
