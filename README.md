@@ -200,4 +200,4 @@ I'm a one-person team. I decided the idea, the scope and how each part should be
 Problems fixed in Round 2 are in the git history.
 
 ## Disclosure
-AI assistance (Claude by Anthropic) was used to plan, write and test the code and documentation, as described above. The running product uses the Google Gemini API for the AI review and rule suggestions, and Supabase for the team workspace. pdf.js (Apache 2.0), mammoth.js (BSD-2-Clause) and supabase-js (MIT) are loaded from public CDNs. No templates or code from before the build window were used. Kitebird Money, its partner bank and all demo content are fictional.
+AI assistance (Claude by Anthropic) was used to plan, write and test the code and documentation, as described above. Google Gemini was used for research and finding sources. The running product uses the Google Gemini API for the AI review and rule suggestions, and Supabase for the team workspace. pdf.js (Apache 2.0), mammoth.js (BSD-2-Clause) and supabase-js (MIT) are loaded from public CDNs. No templates or code from before the build window were used. Kitebird Money, its partner bank and all demo content are fictional.
