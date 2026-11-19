@@ -24,6 +24,7 @@
     if (/User already registered/i.test(m)) return "There's already an account with that email. Sign in instead.";
     if (/Password should be/i.test(m)) return "Use a password with at least 6 characters.";
     if (/Failed to fetch|NetworkError|network/i.test(m)) return "Couldn't reach the server. Check your connection and try again.";
+    if (/check constraint/i.test(m)) return "Please fill in every field. Names can be up to 60 characters.";
     if (/JWT expired|refresh token/i.test(m)) return "Your session expired. Please sign in again.";
     return m.replace(/^.*?exception:\s*/i, "");
   }

@@ -42,6 +42,20 @@ do $$ begin
   perform public.set_member_role((select ws from ctx), '11111111-1111-1111-1111-111111111111', 'creator');
   raise exception 'FAIL: removed last admin';
 exception when others then if sqlerrm like 'FAIL%' then raise; end if; raise notice 'ok: last admin protected'; end $$;
+-- Riya can comment on the approved item (an upsert that keeps the status) ...
+select set_config('request.jwt.claim.sub', :'riya', false);
+insert into public.items (id, workspace_id, data) values ('item0001', (select ws from ctx), '{"status":"approved","title":"Post","comments":[{"text":"Thanks!"}]}')
+  on conflict (id) do update set data = excluded.data;
+select 'creator comment saved: ' || (data->'comments'->0->>'text') from public.items where id = 'item0001';
+-- ... but can't approve her own new item with an upsert either
+insert into public.items (id, workspace_id, data) values ('item0002', (select ws from ctx), '{"status":"in_review"}');
+do $$ begin
+  insert into public.items (id, workspace_id, data) values ('item0002', (select ws from ctx), '{"status":"approved"}')
+    on conflict (id) do update set data = excluded.data;
+  raise exception 'FAIL: creator approved via upsert';
+exception when others then if sqlerrm like 'FAIL%' then raise; end if; raise notice 'ok: creator cannot approve via upsert'; end $$;
+select set_config('request.jwt.claim.sub', :'arjun', false);
+
 -- Arjun promotes Riya to reviewer
 select public.set_member_role((select ws from ctx), :'riya', 'reviewer');
 

@@ -207,7 +207,7 @@ module.exports = async function handler(req, res) {
 
   const ip = (req.headers["x-forwarded-for"] || "").split(",")[0] || "anon";
   const now = Date.now(); const list = (hits.get(ip) || []).filter(t => now - t < 60000);
-  if (list.length >= 12) return res.status(200).json({ ok: false, error: "Too many AI checks in a minute. Rule and fact checks still ran; try the AI check again shortly." });
+  if (list.length >= (+process.env.AI_CHECKS_PER_MINUTE || 12)) return res.status(200).json({ ok: false, error: "Too many AI checks in a minute. Rule and fact checks still ran; try the AI check again shortly." });
   list.push(now); hits.set(ip, list);
 
   let body;

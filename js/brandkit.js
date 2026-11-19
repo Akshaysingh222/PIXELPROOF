@@ -3,6 +3,8 @@
 (function (root) {
   const DEMO_KIT = {
     brand: "Kitebird Money",
+    version: 1,
+    history: [],
     about: "A savings app that helps people in India put money aside in small, regular steps.",
     voice: {
       summary: "Calm, clear and friendly, like a friend who is good with money. Never pushy, never hype.",
@@ -113,7 +115,9 @@
     { label: "Email with outdated fact", type: "Email", title: "Welcome email",
       text: "Hi there,\n\nWelcome to Kitebird Money! You're joining 1 lakh savers who are building better habits. Your Savings Pot can earn up to 7.25% interest per year through our partner bank, and deposits are insured up to 5 lakh by DICGC.\n\nMost savers set up their first Savings Pot in under 3 minutes. Open the app and tap Savings Pots to begin.\n\nTeam Kitebird Money" },
     { label: "Clean ad copy", type: "Advertisement", title: "Diwali ad",
-      text: "Small steps add up. Put a little aside every week with a Savings Pot from Kitebird Money. Free to download, no account opening fee. #SaveSmart" }
+      text: "Small steps add up. Put a little aside every week with a Savings Pot from Kitebird Money. Free to download, no account opening fee. #SaveSmart" },
+    { label: "Festive offer", type: "Instagram caption", title: "Festive offer",
+      text: "Limited time only: set a festive savings goal with a Savings Pot from Kitebird Money. Offer ends 2 November. #SaveSmart" }
   ];
 
   const api = { DEMO_KIT, SAMPLES };

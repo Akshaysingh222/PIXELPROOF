@@ -85,7 +85,7 @@ create policy "admins can delete items" on public.items
 -- A creator can submit or resubmit (in_review); only a reviewer or admin can approve or request changes.
 create or replace function public.items_guard() returns trigger
 language plpgsql security definer set search_path = public as $$
-declare r text;
+declare r text; prev text;
 begin
   new.status := coalesce(new.data->>'status', new.status);
   new.updated_at := now();
@@ -97,10 +97,14 @@ begin
   if tg_op = 'UPDATE' and new.workspace_id <> old.workspace_id then
     raise exception 'Items cannot move between workspaces';
   end if;
-  if new.status in ('approved', 'changes_requested')
-     and (tg_op = 'INSERT' or new.status is distinct from old.status)
-     and r not in ('reviewer', 'admin') then
-    raise exception 'Only a reviewer or admin can approve content or request changes';
+  if new.status in ('approved', 'changes_requested') and r not in ('reviewer', 'admin') then
+    -- an upsert runs the INSERT trigger first, so look at the stored row to see if the status really changes
+    if tg_op = 'UPDATE' then prev := old.status;
+    else select i.status into prev from public.items i where i.id = new.id and i.workspace_id = new.workspace_id;
+    end if;
+    if prev is distinct from new.status then
+      raise exception 'Only a reviewer or admin can approve content or request changes';
+    end if;
   end if;
   return new;
 end $$;

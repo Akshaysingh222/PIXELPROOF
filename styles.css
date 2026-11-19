@@ -160,3 +160,29 @@ table.kit tr.off td { opacity: .45; }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 10px 16px; border-radius: 8px; font-size: 14px; z-index: 50; box-shadow: 0 6px 20px rgba(0,0,0,.2); }
 footer { text-align: center; color: var(--muted); font-size: 12.5px; padding: 20px; }
 @media (max-width: 700px) { header.top { position: static; } }
+
+/* Round 3: notices, gap detector, team workspace */
+.status-line.warn { background: var(--blocker-bg); color: var(--blocker); }
+.status-line.ok-line { background: var(--ok-bg); color: var(--ok); }
+.status-line.team-line { background: #eef4fb; color: #1f4f82; }
+.status-line .btn { margin-left: 6px; }
+.counter { margin-top: 4px; min-height: 18px; }
+.examples { display: flex; flex-direction: column; gap: 2px; font-size: 13px; color: var(--muted); margin: 4px 0 6px; }
+.gaps-card > .hint { margin-top: -4px; }
+.gap { border: 1px solid var(--line); border-left: 4px solid #cfc8bd; border-radius: 8px; padding: 12px 14px; margin-top: 12px; }
+.gap.unclear { border-left-color: var(--orange); }
+.gap-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); margin: 6px 0; }
+.gap-stats b { color: var(--ink); }
+.reasons { margin: 6px 0 10px; padding-left: 18px; font-size: 13.5px; }
+.reasons li { margin-bottom: 3px; }
+.gap-editor { background: var(--cream); border-radius: 8px; padding: 12px; margin-top: 8px; }
+.gap-editor textarea { min-height: 60px; }
+.pats { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13.5px; }
+.pats legend { margin-bottom: 4px; }
+.demo-acct { display: flex; justify-content: space-between; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0; }
+.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 20px; letter-spacing: 3px; font-weight: 700; }
+.auth input, #joinForm input, #createForm input[type=text] { width: 100%; }
+label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; margin-top: 10px; }
+.badge.team { background: #eef4fb; color: #1f4f82; border: 0; cursor: pointer; font: inherit; font-size: 12.5px; }
+@media (max-width: 700px) { .badge.team { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } }
+[hidden] { display: none !important; }
