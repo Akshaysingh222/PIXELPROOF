@@ -371,6 +371,7 @@
       const last = lsGet("pixelproof:lastWorkspace");
       if (last) { try { await openWorkspace(last, true); } catch (e) { /* fall back to the list */ } }
     }
+    handoffDraft = null;
     render();
   }
   async function loadWorkspaceList() {
@@ -400,6 +401,7 @@
       S = fixInterrupted(S);
       applyTeamData(data);
       TEAM.on = true;
+      if (useHandoff()) { handoffDraft = null; const go = () => busy ? setTimeout(go, 250) : runCheck(); setTimeout(go, 0); }
       lsSet("pixelproof:lastWorkspace", wsId);
       TEAMAPI.subscribe(wsId, scheduleRefresh);
       clearInterval(TEAM.poll); TEAM.poll = setInterval(() => { if (document.visibilityState === "visible") refreshTeam(); }, 20000);
@@ -1063,6 +1065,13 @@
 
   // ---------- links from the Chrome extension ----------
   // The extension opens PixelProof with #check=... so a draft from LinkedIn/Gmail/X lands in the checker.
+  // A draft sent from the extension. Kept until the team workspace (if any) has opened, so it isn't replaced by it.
+  let handoffDraft = null;
+  function useHandoff() {
+    if (!handoffDraft) return false;
+    S.draft = clone(handoffDraft); S.tab = "check"; S.introHidden = true; save();
+    return true;
+  }
   function readHandoff() {
     const m = /^#check=([A-Za-z0-9_-]+)$/.exec(location.hash || ""); if (!m) return false;
     history.replaceState(null, "", location.pathname + location.search);
@@ -1071,13 +1080,13 @@
       const json = new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
       const p = JSON.parse(json);
       if (typeof p.text !== "string" || !p.text.trim()) return false;
-      S.draft = Object.assign(freshDraft(), { text: p.text.slice(0, 50000), title: String(p.title || "From " + (p.site || "the extension")).slice(0, 120), type: TYPES.includes(p.type) ? p.type : "LinkedIn post" });
-      S.tab = "check"; S.introHidden = true; save();
+      handoffDraft = Object.assign(freshDraft(), { text: p.text.slice(0, 50000), title: String(p.title || "From " + (p.site || "the extension")).slice(0, 120), type: TYPES.includes(p.type) ? p.type : "LinkedIn post" });
+      useHandoff();
       return true;
     } catch (e) { toast("Couldn't read the draft sent from the extension."); return false; }
   }
 
-  window.addEventListener("hashchange", () => { if (readHandoff()) { render(); runCheck(); } });
+  window.addEventListener("hashchange", () => { if (readHandoff()) { if (TEAM.ready) handoffDraft = null; render(); runCheck(); } });
 
   // ---------- start ----------
   const handoff = readHandoff();
