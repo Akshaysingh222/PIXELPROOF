@@ -94,7 +94,7 @@ The AI review goes through the PixelProof server, so the Gemini key is never in 
 | Hosting | Vercel, deployed from this repository |
 | Storage | Browser `localStorage` in demo mode; Supabase in a team workspace |
 | Documents | pdf.js and mammoth.js, loaded from cdnjs only when a file is uploaded |
-| Tests | Node's built-in test runner (`npm test`, 34 tests), a database security test (SQL), and browser tests (see [Testing](#testing)) |
+| Tests | Node's built-in test runner (`npm test`, 35 tests), a database security test (SQL), and browser tests (see [Testing](#testing)) |
 
 See **[CODE_GUIDE.md](CODE_GUIDE.md)** for a plain-English walkthrough of the code.
 
@@ -146,7 +146,7 @@ The anon key is public by design. Row level security in `schema.sql` decides who
 ## Testing
 | What | How | Result |
 | --- | --- | --- |
-| Engine, API and extension | `npm test`: rules, fact matching, dates not treated as claims, checking the AI's answer, gap detector (ranking, suggestion, validation, applying, undo, only counting signals after a change), API validation (bad JSON, missing kit, empty text, CORS), guideline import (finding rules, facts and terms; throwing out made-up quotes and unsafe patterns; applying and undoing), API guide mode, extension manifest and engine copy | 34 / 34 pass |
+| Engine, API and extension | `npm test`: rules, fact matching, dates not treated as claims, checking the AI's answer, gap detector (ranking, suggestion, validation, applying, undo, only counting signals after a change), API validation (bad JSON, missing kit, empty text, CORS), guideline import (finding rules, facts and terms; throwing out made-up quotes and unsafe patterns; applying and undoing), API guide mode, extension manifest and engine copy | 35 / 35 pass |
 | Database security | `supabase/test/rls_test.sql` on Postgres 16 with a small stand-in for Supabase auth: creator can't approve (also through an upsert), can't edit the kit, can't change roles; last admin protected; outsiders and signed-out visitors see nothing; wrong join codes rejected | all pass |
 | Web app, end to end | Playwright in Chrome against the real app and API with a stand-in for Gemini, and a stand-in for the Supabase API that runs every query on the real `schema.sql`: the full creator → reviewer → revise → approve journey; the gap detector changing the next check, history and undo; guideline import from the sample and from an uploaded file (a made-up AI quote thrown out, the next check using the imported rules, undo); empty input, double clicks, refresh mid-check, extension hand-off, bad imports, mobile width; two browsers sharing one team workspace (each demo visitor getting their own workspace, sign up and create by hand, join by code, live queue updates, approval seen on the other device, database refusing a forced approval, role change, refresh, a draft from the extension, sign out) | 56 / 56 pass |
 | Extension | Playwright loads the real extension into Chrome and uses pages with the same compose-box markup as LinkedIn (Quill editor), Gmail (message body) and X (Draft.js): button appears, issues listed and underlined, AI review, fix applied in the box (also while the AI is still running), ignore, Send to review queue; harder layouts (box already focused when the page loads, a post window opened as a modal dialog like LinkedIn's, editor inside shadow DOM, editor inside a frame); no button while the box is empty; side panel with selected text; options | 45 / 45 pass |

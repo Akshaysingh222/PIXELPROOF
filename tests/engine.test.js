@@ -208,3 +208,19 @@ test("guideline import: approved items change the next check, are recorded, and 
   assert.strictEqual(k3.rules.length, kit.rules.length); assert.strictEqual(k3.facts.length, kit.facts.length);
   assert.ok(!E.runLocal(g.tryText, k3, TODAY).issues.some(i => i.excerpt.toLowerCase() === "secret trick"));
 });
+
+test("guideline import: the AI's and code's proposals from the same sentence become one, keeping code's phrases", () => {
+  const g = K.SAMPLE_GUIDE;
+  const code = E.validateImport(E.extractGuideline(g.text), g.text, kit, TODAY);
+  // what Gemini really sent back on the live site: its own wording, longer quotes, no phrases to match
+  const ai = E.validateImport({ rules: [
+      { title: "No wealth hack phrases", detail: "Never use the phrases wealth hack or secret trick.", quote: "Never use the phrases “wealth hack” or “secret trick”. Saving is a habit, not a trick.", patterns: [] },
+      { title: "Not a bank clarification", detail: "Do not call Kitebird Money a bank or your bank in any content.", quote: "Do not call Kitebird Money “a bank” or “your bank” in any content.", patterns: [] }],
+    facts: [], glossary: [] }, g.text, kit, TODAY);
+  const m = E.mergeImports(ai, code);
+  assert.strictEqual(m.rules.filter(r => /wealth/i.test(r.detail)).length, 1);
+  assert.ok(m.rules.find(r => r.title === "Not a bank clarification").patterns.some(p => /your/.test(p)));
+  const k2 = E.applyImport(kit, m, "Arjun", "2026-11-20T10:00:00Z", g.fileName, "code + AI");
+  const ex = E.runLocal(g.tryText, k2, TODAY).issues.map(i => i.excerpt.toLowerCase());
+  assert.ok(ex.includes("your bank") && ex.includes("secret trick"));
+});

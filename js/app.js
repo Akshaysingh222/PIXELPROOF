@@ -383,12 +383,7 @@
       const data = await res.json().catch(() => ({ ok: false }));
       if (S.importEdit !== e) return;
       if (!data.ok) { e.ai = "error"; e.aiMsg = String(data.error || "The AI didn't answer.").replace(/ ?Rule and fact checks still ran[.;]?/, ""); return; }
-      const ai = PP.validateImport(data.proposal, e.text, S.kit);
-      // keep the AI's proposals, then add code's proposals that quote a sentence the AI didn't use
-      const used = new Set([].concat(ai.rules, ai.facts, ai.glossary).map(x => PP.norm(x.quote)));
-      const add = (list, from) => from.forEach(x => { if (!used.has(PP.norm(x.quote))) { list.push(x); used.add(PP.norm(x.quote)); } });
-      add(ai.rules, e.v.rules); add(ai.facts, e.v.facts); add(ai.glossary, e.v.glossary);
-      ai.rejected = ai.rejected.concat(e.v.rejected);
+      const ai = PP.mergeImports(PP.validateImport(data.proposal, e.text, S.kit), e.v);
       e.v = ai; e.ai = "done"; e.model = data.model; e.truncated = data.truncated;
     } catch (err) {
       if (S.importEdit === e) { e.ai = "error"; e.aiMsg = "Couldn't reach the AI."; }

@@ -732,6 +732,22 @@
     return prop;
   }
 
+  // Combines the AI's proposals with code's. When both come from the same sentence (one quote contains the other),
+  // they become one proposal: the AI's wording, plus code's exact phrases if the AI gave none, and both lists of words to avoid.
+  function mergeImports(ai, code) {
+    const out = { rules: ai.rules.slice(), facts: ai.facts.slice(), glossary: ai.glossary.slice(), rejected: (ai.rejected || []).concat(code.rejected || []) };
+    const same = (a, b) => { const x = normQuote(a), y = normQuote(b); return !!x && !!y && (x.includes(y) || y.includes(x)); };
+    for (const kind of ["rules", "facts", "glossary"]) {
+      for (const c of code[kind] || []) {
+        const twin = out[kind].find(a => same(a.quote, c.quote) || (kind === "rules" && c.patterns.length && a.patterns.some(p => c.patterns.includes(p))));
+        if (!twin) { out[kind].push(c); continue; }
+        if (kind === "rules") twin.patterns = Array.from(new Set(twin.patterns.concat(c.patterns)));
+        if (kind === "glossary" && twin.use.toLowerCase() === c.use.toLowerCase()) twin.avoid = Array.from(new Set(twin.avoid.concat(c.avoid)));
+      }
+    }
+    return out;
+  }
+
   // Adds the approved parts of an import to the brand kit, with new IDs, a new kit version and a history entry.
   function applyImport(kit, accepted, by, at, fileName, source) {
     const k = JSON.parse(JSON.stringify(kit));
@@ -773,7 +789,7 @@
     return k;
   }
 
-  const api = { validateImport, extractGuideline, applyImport, revertImport, quoteInDoc, safePattern, plainPattern, analyseGaps, suggestRuleChange, validateRuleChange, applyRuleChange, revertRuleChange, runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
+  const api = { mergeImports, validateImport, extractGuideline, applyImport, revertImport, quoteInDoc, safePattern, plainPattern, analyseGaps, suggestRuleChange, validateRuleChange, applyRuleChange, revertRuleChange, runLocal, ruleChecks, claimChecks, verifyAI, retrieveFacts, applyFix, maskPII, analyseImage, diffWords, extractNumbers,
     sortIssues, dedupe, isExpired, contrast, hexToRgb, camelHashtag, norm, todayISO, SEV_ORDER };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.PP = api;
