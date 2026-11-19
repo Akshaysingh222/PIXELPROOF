@@ -11,7 +11,10 @@
     { test: /^mail\.google\.com$/, name: "Gmail", type: "Email", editor: 'div[aria-label="Message Body"][contenteditable="true"], div[role="textbox"][contenteditable="true"][g_editable="true"], div.editable[contenteditable="true"]' },
     { test: /(^|\.)(x|twitter)\.com$/, name: "X", type: "X post", editor: '[data-testid^="tweetTextarea_"][contenteditable="true"], div[role="textbox"][contenteditable="true"]' }
   ];
-  const SITE = SITES.find(s => s.test.test(location.hostname));
+  // inside a blank or srcdoc frame (some editors live in one), use the page's own address
+  let host = location.hostname;
+  if (!host && location.ancestorOrigins && location.ancestorOrigins.length) { try { host = new URL(location.ancestorOrigins[location.ancestorOrigins.length - 1]).hostname; } catch (e) { host = ""; } }
+  const SITE = SITES.find(s => s.test.test(host));
   if (!SITE) return;
 
   let cfg = null;            // settings: API address, AI on/off, brand kit
@@ -26,6 +29,7 @@
   // so issues found in the text can be highlighted and fixed in the page.
   const BLOCK = /^(DIV|P|LI|H[1-6]|BLOCKQUOTE|PRE|UL|OL)$/;
   function readEditor(el) {
+    if (el.tagName === "TEXTAREA") return { text: el.value, segs: [], textarea: true };
     const segs = []; let text = "";
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
     let n = w.nextNode();
@@ -159,10 +163,15 @@
     const i = state.result && state.result.issues.find(x => x.key === key); if (!i || !editor) return;
     const fix = i.fixes[n]; if (!fix) return;
     const map = readEditor(editor); const at = locate(map.text, i);
-    const range = at >= 0 ? rangeFor(map, at, at + i.excerpt.length) : null;
-    if (!range) { flash("Couldn't find that text any more. Click Check again."); return; }
-    editor.focus();
-    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    if (map.textarea) {
+      if (at < 0) { flash("Couldn't find that text any more. Click Check again."); return; }
+      editor.focus(); editor.setSelectionRange(at, at + i.excerpt.length);
+    } else {
+      const range = at >= 0 ? rangeFor(map, at, at + i.excerpt.length) : null;
+      if (!range) { flash("Couldn't find that text any more. Click Check again."); return; }
+      editor.focus();
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    }
     const ok = fix.replacement ? document.execCommand("insertText", false, fix.replacement) : document.execCommand("delete");
     if (!ok) { flash("This page didn't accept the change. Copy the fix: " + (fix.replacement || "(remove the words)")); return; }
     setTimeout(() => recheck(false), 60);
@@ -170,27 +179,47 @@
   function flash(msg) { state.ai = { ok: false, error: msg }; drawPanel(); }
 
   // ---------- following the focused compose box ----------
-  function editorFrom(node) {
-    const el = node && node.nodeType === 1 ? node : node && node.parentElement;
-    const hit = el && el.closest(SITE.editor);
+  // Finds the compose box from a focus or typing event. Looks inside shadow DOM too, and falls back to any
+  // large editable box, so small changes to a site's page don't stop the extension working.
+  function bigEnough(el) { const r = el.getBoundingClientRect(); return r.width >= 160 && r.height >= 24; }
+  function editorFromPath(path) {
+    const els = path.filter(n => n && n.nodeType === 1);
+    let hit = els.find(n => n.matches && n.matches(SITE.editor));
+    if (!hit) hit = els.find(n => (n.isContentEditable || n.tagName === "TEXTAREA") && bigEnough(n) && !/search/i.test((n.getAttribute("aria-label") || "") + (n.getAttribute("placeholder") || "")));
     if (!hit) return null;
     let top = hit; while (top.parentElement && top.parentElement.isContentEditable) top = top.parentElement;
     return top;
   }
-  document.addEventListener("focusin", e => {
-    const ed = editorFrom(e.target); if (!ed) return;
-    if (ed !== editor) { editor = ed; aiRun++; state = { result: null, ai: null, text: "" }; ignored.clear(); setBadge(); if (panelHost.style.display === "block") recheck(false); }
+  function pathOf(e) { return e.composedPath ? e.composedPath() : [e.target]; }
+  function deepActive() { let a = document.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return a; }
+  function ancestors(n) { const out = []; while (n) { out.push(n); n = n.parentNode || n.host; } return out; }
+  // highlights inside a shadow root need the underline styles added to that root
+  function styleRoot(el) {
+    const root = el.getRootNode();
+    if (root instanceof ShadowRoot && !root.__ppStyled) {
+      const st = document.createElement("style");
+      st.textContent = "::highlight(pp-blocker){text-decoration:underline wavy #d42020;text-decoration-thickness:2px;background-color:rgba(212,32,32,.12)}::highlight(pp-warning){text-decoration:underline wavy #d98a1b;text-decoration-thickness:2px;background-color:rgba(217,138,27,.12)}::highlight(pp-suggestion){text-decoration:underline dotted #3b78c4;text-decoration-thickness:2px}";
+      root.appendChild(st); root.__ppStyled = true;
+    }
+  }
+  function useEditor(ed) {
+    if (!ed) return;
+    if (ed !== editor) { editor = ed; aiRun++; state = { result: null, ai: null, text: "" }; ignored.clear(); setBadge(); styleRoot(ed); if (panelHost.style.display === "block") recheck(false); }
     if (!btnHost.isConnected) document.documentElement.append(btnHost, panelHost);
     place();
-  }, true);
+  }
+  function inEditor(e) { return editor && pathOf(e).includes(editor); }
+  document.addEventListener("focusin", e => useEditor(editorFromPath(pathOf(e))), true);
+  // the box may already have focus when the page loads (LinkedIn's compose page does this), so typing and clicks count too
+  ["keyup", "pointerup", "paste"].forEach(t => document.addEventListener(t, e => { if (!inEditor(e)) useEditor(editorFromPath(pathOf(e))); }, true));
   let typing = null;
   document.addEventListener("input", e => {
-    if (!editor || !editor.contains(e.target)) return;
+    if (!inEditor(e)) { useEditor(editorFromPath(pathOf(e))); if (!inEditor(e)) return; }
     place();
     clearTimeout(typing);
     if (state.result) typing = setTimeout(() => recheck(false), 700); // live rule check while the panel has results
   }, true);
   addEventListener("scroll", () => requestAnimationFrame(place), true);
   addEventListener("resize", () => requestAnimationFrame(place));
-  setInterval(place, 1000);
+  setInterval(() => { if (!editor || !editor.isConnected) useEditor(editorFromPath(ancestors(deepActive()))); place(); }, 1000);
 })();
