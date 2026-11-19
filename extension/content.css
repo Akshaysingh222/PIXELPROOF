@@ -1,0 +1,4 @@
+/* Wavy underlines for PixelProof issues inside LinkedIn, Gmail and X compose boxes. */
+::highlight(pp-blocker) { text-decoration: underline wavy #d42020; text-decoration-thickness: 2px; background-color: rgba(212, 32, 32, 0.12); }
+::highlight(pp-warning) { text-decoration: underline wavy #d98a1b; text-decoration-thickness: 2px; background-color: rgba(217, 138, 27, 0.12); }
+::highlight(pp-suggestion) { text-decoration: underline dotted #3b78c4; text-decoration-thickness: 2px; }

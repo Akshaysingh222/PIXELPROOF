@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PixelProof extension settings</title>
+  <style>
+    body { max-width: 620px; margin: 30px auto; padding: 0 16px; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: #1c1917; background: #faf8f4; }
+    h1 { font-size: 20px; } h2 { font-size: 15px; margin-top: 26px; }
+    input[type=url] { width: 100%; box-sizing: border-box; font: inherit; padding: 7px 9px; border: 1px solid #d6d0c6; border-radius: 8px; }
+    button { font: inherit; font-size: 14px; border: 1px solid #d6d0c6; background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+    button.primary { background: #e4572e; border-color: #e4572e; color: #fff; }
+    .hint { color: #6b645b; font-size: 13.5px; } .msg { margin-top: 10px; font-weight: 600; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <h1>PixelProof extension settings</h1>
+
+  <h2>PixelProof address</h2>
+  <p class="hint">Where AI checks are sent and where "Send to review queue" opens. Your Gemini key stays on that server.</p>
+  <input id="apiUrl" type="url" placeholder="https://pixelproof.vercel.app">
+
+  <h2>AI review</h2>
+  <label class="row"><input id="aiOn" type="checkbox"> Also run the AI review (tone, spelling, claims). Personal data is masked before sending.</label>
+
+  <h2>Brand kit</h2>
+  <p class="hint">The extension uses the built-in Kitebird Money demo kit until you import your own. In the PixelProof web app, open <b>Brand kit</b> and click <b>Export brand kit (JSON)</b>, then import that file here.</p>
+  <p>Current brand kit: <b id="kitName"></b></p>
+  <div class="row"><input id="kitFile" type="file" accept=".json,application/json"><button id="kitReset">Use the demo kit</button></div>
+
+  <div class="row" style="margin-top:24px"><button class="primary" id="save">Save</button><span class="msg" id="msg" role="status"></span></div>
+
+  <script src="lib/brandkit.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

@@ -12,7 +12,7 @@
   const STORE = "pixelproof:v2";
   const DEMO_PEOPLE = { creator: "Riya (Creator)", reviewer: "Arjun (Brand manager)" };
   const ROLE_LABEL = { creator: "Creator", reviewer: "Brand manager", admin: "Admin" };
-  const TYPES = ["LinkedIn post", "Advertisement", "Email", "Document", "Web copy", "Instagram caption"];
+  const TYPES = ["LinkedIn post", "Advertisement", "Email", "Document", "Web copy", "Instagram caption", "X post"];
   const AI_LIMIT = 6000;
   const DEMO_ACCOUNTS = [
     { name: "Arjun", role: "Brand manager (admin)", email: "arjun.manager@pixelproof-demo.com" },

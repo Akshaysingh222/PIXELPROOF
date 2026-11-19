@@ -5,7 +5,10 @@
   "description": "PixelProof: brand checks before you publish. Team Pixel, CodeNova India 2026.",
   "scripts": {
     "dev": "node dev-server.js",
-    "test": "node --test tests/engine.test.js tests/api.test.js"
+    "test": "node --test tests/engine.test.js tests/api.test.js tests/extension.test.js",
+    "build:extension": "node scripts/build-extension.js"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }

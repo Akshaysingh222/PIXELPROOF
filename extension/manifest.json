@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "PixelProof: brand check where you write",
+  "short_name": "PixelProof",
+  "version": "1.0.0",
+  "description": "Checks LinkedIn, Gmail and X drafts against your brand kit before you post, using the same engine as the PixelProof web app.",
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "action": { "default_title": "PixelProof: check selected text", "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png" } },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage", "contextMenus", "sidePanel"],
+  "host_permissions": ["https://pixelproof.vercel.app/*", "http://localhost/*"],
+  "side_panel": { "default_path": "sidepanel.html" },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/*", "https://mail.google.com/*", "https://x.com/*", "https://twitter.com/*"],
+      "js": ["lib/brandkit.js", "lib/engine.js", "shared.js", "content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
