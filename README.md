@@ -3,7 +3,7 @@
 **Brand checks before you publish.** Team Pixel (Akshay Singh) · CodeNova India 2026 · Inkloom AI brand-governance brief
 
 ### ▶ Live app: **https://pixelproof.vercel.app**
-No sign-up needed for the demo. The Chrome extension and the shared team workspace are described below.
+No sign-up needed for the demo. **Chrome extension:** [download it](https://pixelproof.vercel.app/downloads/pixelproof-extension.zip) and follow the [step-by-step install](#install-it-step-by-step) (about 2 minutes).
 
 > **Every number is checked against approved facts by code. The AI can't pass a claim on its own.**
 
@@ -66,22 +66,45 @@ Screenshots of the extension are from the test pages described under [Testing](#
 - **Team workspace:** sign up or use the demo accounts; create a workspace (optionally with the sample brand kit and content) or join one with a 6-character code; admins change roles; the queue and brand kit update live on every device. A creator can't approve (the button isn't there, and the database refuses it if forced), and only brand managers can change the brand kit.
 
 ## Chrome extension
-The extension adds a **Check** button to the compose box on **LinkedIn**, **Gmail** and **X**. It uses the same check engine and brand kit as the web app.
+The extension adds a **Check** button to the compose box on **LinkedIn**, **Gmail** and **X**. It uses the same check engine and brand kit as the web app. It isn't on the Chrome Web Store yet, so it's installed with Chrome's **Load unpacked** (about 2 minutes). Tested in Google Chrome.
 
-**Install from the repository**
-1. Clone or download this repository (or download [`downloads/pixelproof-extension.zip`](downloads/pixelproof-extension.zip) and unzip it).
-2. Open `chrome://extensions` in Chrome and turn on **Developer mode** (top right).
-3. Click **Load unpacked** and choose the `extension` folder (or the unzipped `pixelproof-extension` folder).
+### Install it (step by step)
+1. **Download the extension** (pick one):
+   - Easiest: download **[pixelproof-extension.zip](https://pixelproof.vercel.app/downloads/pixelproof-extension.zip)** (also in this repository at [`downloads/pixelproof-extension.zip`](https://github.com/Akshaysingh222/PIXELPROOF/raw/main/downloads/pixelproof-extension.zip)), or
+   - On this GitHub page click the green **Code** button → **Download ZIP**, or `git clone https://github.com/Akshaysingh222/PIXELPROOF.git`.
+2. **Unzip it.** On Windows: right-click the zip → **Extract All** → **Extract**. On a Mac, double-click it.
+3. **Find the right folder.** It's the one that contains `manifest.json`:
+   - from `pixelproof-extension.zip`: the **`pixelproof-extension`** folder
+   - from GitHub's Download ZIP: **`PIXELPROOF-main` → `extension`** (Windows sometimes creates `PIXELPROOF-main\PIXELPROOF-main\extension`, so open folders until you see `manifest.json`)
+4. In Chrome, type **`chrome://extensions`** in the address bar and press Enter.
+5. Turn on **Developer mode** (switch at the top right).
+6. Click **Load unpacked** (top left) and select the folder from step 3. A **PixelProof** card with an orange square icon appears.
+7. Optional: click the puzzle-piece icon in Chrome's toolbar and pin PixelProof.
+8. **Refresh any LinkedIn, Gmail or X tabs that were already open.** Extensions only load into pages opened after installing.
 
-**Use it**
-- Start a LinkedIn post, a Gmail message or an X post, type, and click **▪ Check** at the bottom right of the box.
-- Problems are underlined in your draft (red = blocker, amber = warning, blue = suggestion) and listed in a panel with the reason and the rule.
-- Click a fix to change the words in place. Click **Ignore** to hide one. The list updates as you type.
-- **Send to review queue** opens PixelProof with the draft already checked, ready to submit.
-- On any other site, select text, right-click and choose **Check with PixelProof**. It opens in Chrome's side panel. Clicking the toolbar icon opens the side panel too.
-- **Settings** (right-click the icon → Options): PixelProof address (default `https://pixelproof.vercel.app`), AI review on or off, and importing your own brand kit (export it from the web app's Brand kit page).
+### Try it in one minute
+1. Open **X** (x.com), **LinkedIn** (Start a post) or **Gmail** (Compose). You need to be signed in to that site.
+2. Paste this into the post box or email body:
+   `Kitebird is India's #1 savings app!! Join 5 lakh customers who already earn 9% interest. Sign up now 🚀🚀🚀`
+3. A dark **▪ Check** button appears at the bottom right of the box (just below it on X). Click it.
+4. Problems are underlined in your draft (red = blocker, amber = warning, blue = suggestion), and a panel on the right lists each one with the reason and the rule. After a few seconds, the AI review result appears at the top of the panel.
+5. Click an orange fix button, for example **Use the approved figure**. The words change inside the box.
+6. Click **Send to review queue**. PixelProof opens in a new tab with the draft already checked, ready to submit.
+7. **Don't press Post or Send.** Close the draft when you're done.
 
-The AI review goes through the PixelProof server, so the Gemini key is never in the extension. Personal data is masked before sending.
+### More
+- **Any other website:** select text, right-click → **Check with PixelProof**. It opens in Chrome's side panel. Clicking the toolbar icon opens the side panel too.
+- **Settings** (right-click the icon → **Options**): PixelProof address (default `https://pixelproof.vercel.app`; use `http://localhost:3000` for a local copy), AI review on or off, and importing your own brand kit (export it from the web app's **Brand kit** page).
+- The AI review goes through the PixelProof server, so the Gemini key is never in the extension. Personal data is masked before sending.
+
+### If something doesn't work
+| Problem | Fix |
+| --- | --- |
+| "Manifest file is missing or unreadable" | You picked the wrong folder. Pick the one that has `manifest.json` directly inside it (step 3). |
+| No **Check** button | Refresh the tab (step 8), click inside the box and type something. The button stays hidden while the box is empty. |
+| Still no button on a site | Select your text, right-click → **Check with PixelProof** to use the side panel instead. Sites change their pages often. |
+| "Couldn't reach PixelProof" in the panel | The rule and fact checks still ran. Check the internet connection and try **Check again**. |
+| Updating to a newer version | Download again, then on `chrome://extensions` click **Remove** on the old card and **Load unpacked** the new folder. |
 
 ## How it's built
 | Part | Technology |
